@@ -1,13 +1,16 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as path;
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../utils/app_theme.dart';
 import '../services/app_state.dart';
 import '../services/ai_service.dart';
+import '../services/document_text_extractor.dart';
 import '../models/models.dart';
 
 class UploadDocumentScreen extends StatefulWidget {
@@ -22,12 +25,17 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
   final _notesCtrl = TextEditingController();
   String _docType = 'Lab Report';
   File? _selectedFile;
+  Uint8List? _selectedBytes;
   String? _selectedFileName;
   String? _fileExtension;
   int? _fileSize;
   bool _isUploading = false;
   double _uploadProgress = 0;
   bool _generateAI = true;
+  String? _extractionStatus;
+  bool _extractionSucceeded = false;
+  String? _previewExtractedText;
+  bool _isPreviewLoading = false;
 
   final List<String> _docTypes = [
     'Lab Report', 'Prescription', 'Scan / X-Ray',
@@ -54,26 +62,49 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
         type: FileType.custom,
         allowedExtensions: ['pdf', 'jpg', 'jpeg', 'png'],
         allowMultiple: false,
-        withData: false,
+        withData: true,
         withReadStream: false,
       );
 
       if (result != null && result.files.isNotEmpty) {
         final pickedFile = result.files.first;
-        final filePath = pickedFile.path;
-        if (filePath == null) {
-          _showError('Could not access file. Please try again.');
+        File? file;
+        Uint8List? bytes;
+
+        if (!kIsWeb) {
+          final filePath = pickedFile.path;
+          if (filePath != null) {
+            file = File(filePath);
+          }
+        }
+
+        if (file == null && pickedFile.bytes != null) {
+          bytes = pickedFile.bytes;
+        }
+
+        if (file == null && bytes != null && !kIsWeb) {
+          final tmpDir = await getTemporaryDirectory();
+          final tmpPath = path.join(tmpDir.path, pickedFile.name);
+          file = await File(tmpPath).writeAsBytes(bytes, flush: true);
+        }
+
+        if (file == null && bytes == null) {
+          _showError('Could not access selected file. Please try another file.');
           return;
         }
-        final file = File(filePath);
+
         final fileName = pickedFile.name;
         final ext = path.extension(fileName).toLowerCase().replaceAll('.', '');
-        final size = await file.length();
+        final size = file != null ? await file.length() : (bytes?.length ?? 0);
         setState(() {
           _selectedFile = file;
+          _selectedBytes = bytes;
           _selectedFileName = fileName;
           _fileExtension = ext;
           _fileSize = size;
+          _extractionStatus = null;
+          _extractionSucceeded = false;
+          _previewExtractedText = null;
         });
         if (_nameCtrl.text.isEmpty) {
           _nameCtrl.text = path.basenameWithoutExtension(fileName)
@@ -81,7 +112,7 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
         }
       }
     } catch (e) {
-      _showError('Could not open file picker. Please check app permissions.');
+      _showError('HV_PICKER_ERR: Could not open file picker: $e');
     }
   }
 
@@ -90,10 +121,51 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
       SnackBar(content: Text(msg), backgroundColor: AppTheme.danger));
   }
 
+  Future<void> _previewExtractedTextForSelectedFile() async {
+    final file = _selectedFile;
+    final ext = _fileExtension;
+    if (ext == null) return;
+
+    if (kIsWeb && file == null) {
+      setState(() {
+        _previewExtractedText =
+            'Preview is currently available on mobile/desktop builds. On web, upload still works with document details.';
+      });
+      return;
+    }
+
+    if (file == null) return;
+
+    setState(() {
+      _isPreviewLoading = true;
+    });
+
+    try {
+      final text = await DocumentTextExtractor.extractTextFromFile(
+        filePath: file.path,
+        fileExtension: ext,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _previewExtractedText = (text == null || text.trim().isEmpty)
+            ? 'No text could be extracted from this file.'
+            : text.trim();
+        _isPreviewLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _previewExtractedText = 'Failed to extract text from this file.';
+        _isPreviewLoading = false;
+      });
+    }
+  }
+
   Future<void> _handleUpload() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
-    if (_selectedFile == null) {
+    if (_selectedFile == null && _selectedBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text('Please select a file to upload first'),
         backgroundColor: AppTheme.warning));
@@ -108,18 +180,51 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
 
       // Step 1 — Copy file to app storage
       setState(() => _uploadProgress = 0.2);
-      final savedPath = await appState.copyFileToAppStorage(
-        _selectedFile!, _selectedFileName!);
+      String savedPath;
+      if (_selectedFile != null) {
+        savedPath = await appState.copyFileToAppStorage(
+          _selectedFile!,
+          _selectedFileName!,
+        );
+      } else {
+        final ext = _fileExtension ?? 'bin';
+        savedPath = 'web_upload_${DateTime.now().millisecondsSinceEpoch}.$ext';
+      }
       setState(() => _uploadProgress = 0.5);
 
       // Step 2 — Generate AI summary if enabled
       String? aiSummary;
       if (_generateAI) {
         setState(() => _uploadProgress = 0.7);
+        setState(() {
+          _extractionStatus = 'Extracting report text for better AI summary...';
+          _extractionSucceeded = false;
+        });
+        String? extractedText;
+        if (_selectedFile != null) {
+          extractedText = await DocumentTextExtractor.extractTextFromFile(
+            filePath: savedPath,
+            fileExtension: _fileExtension ?? '',
+          );
+        }
+        setState(() {
+          _extractionSucceeded = extractedText != null && extractedText.trim().isNotEmpty;
+          _extractionStatus = _extractionSucceeded
+              ? 'Text extracted successfully. AI summary is using report content.'
+              : 'Could not extract text from this file. AI will use document details and notes.';
+        });
+        final cappedExtractedText = (extractedText == null || extractedText.isEmpty)
+            ? 'No extracted text available.'
+            : extractedText.substring(
+                0,
+                extractedText.length > 4000 ? 4000 : extractedText.length,
+              );
+
         aiSummary = await AIService.generateDocumentSummary(
           documentText: 'Document: ${_nameCtrl.text}, Type: $_docType, '
-            'Hospital: ${_hospitalCtrl.text}. '
-            'Notes: ${_notesCtrl.text.isEmpty ? "None" : _notesCtrl.text}',
+              'Hospital: ${_hospitalCtrl.text}. '
+              'Notes: ${_notesCtrl.text.isEmpty ? "None" : _notesCtrl.text}\n\n'
+              'Extracted Report Text:\n$cappedExtractedText',
           documentType: _docType,
           language: appState.selectedLanguage,
           patientName: user?.name ?? 'Patient',
@@ -322,9 +427,69 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
                   const SizedBox(height: 12),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(16),
-                    child: Image.file(_selectedFile!,
-                      height: 180, width: double.infinity, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink())),
+                    child: kIsWeb && _selectedBytes != null
+                        ? Image.memory(
+                            _selectedBytes!,
+                            height: 180,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          )
+                        : Image.file(
+                            _selectedFile!,
+                            height: 180,
+                            width: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                          ),
+                  ),
+                ],
+
+                if (_selectedFile != null && _generateAI) ...[
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isPreviewLoading ? null : _previewExtractedTextForSelectedFile,
+                      icon: _isPreviewLoading
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.find_in_page_rounded, size: 18),
+                      label: Text(
+                        _isPreviewLoading
+                            ? 'Extracting text...'
+                            : 'Preview extracted text',
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ],
+
+                if (_previewExtractedText != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    constraints: const BoxConstraints(maxHeight: 180),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.divider),
+                    ),
+                    child: SingleChildScrollView(
+                      child: Text(
+                        _previewExtractedText!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ),
+                  ),
                 ],
 
                 const SizedBox(height: 20),
@@ -418,6 +583,44 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
                       activeThumbColor: AppTheme.primary),
                   ]),
                 ),
+
+                if (_extractionStatus != null) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: (_extractionSucceeded ? AppTheme.secondary : AppTheme.warning)
+                          .withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: (_extractionSucceeded ? AppTheme.secondary : AppTheme.warning)
+                            .withValues(alpha: 0.3),
+                      ),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          _extractionSucceeded ? Icons.check_circle_rounded : Icons.info_outline_rounded,
+                          size: 18,
+                          color: _extractionSucceeded ? AppTheme.secondary : AppTheme.warning,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _extractionStatus!,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.textSecondary,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 20),
 

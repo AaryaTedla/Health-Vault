@@ -204,6 +204,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setMedicineTakenToday(String medId, bool taken) async {
+    final idx = _medicines.indexWhere((m) => m.id == medId);
+    if (idx == -1) return;
+    final med = _medicines[idx];
+    _medicines[idx] = MedicineReminder(
+      id: med.id,
+      patientId: med.patientId,
+      medicineName: med.medicineName,
+      dosage: med.dosage,
+      frequency: med.frequency,
+      times: med.times,
+      duration: med.duration,
+      startDate: med.startDate,
+      endDate: med.endDate,
+      isActive: med.isActive,
+      lastTakenAt: taken ? DateTime.now() : null,
+      notes: med.notes,
+      color: med.color,
+    );
+    await _saveMedicines();
+    notifyListeners();
+  }
+
   // ─── Utils ───────────────────────────────────────────────────────
 
   void setLanguage(String language) {

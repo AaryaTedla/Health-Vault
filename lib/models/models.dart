@@ -168,6 +168,7 @@ class MedicineReminder {
   final DateTime startDate;
   final DateTime? endDate;
   final bool isActive;
+  final DateTime? lastTakenAt;
   final String? notes;
   final String? color; // pill color hex
 
@@ -182,6 +183,7 @@ class MedicineReminder {
     required this.startDate,
     this.endDate,
     this.isActive = true,
+    this.lastTakenAt,
     this.notes,
     this.color,
   });
@@ -198,6 +200,7 @@ class MedicineReminder {
       startDate: _dateTimeFromDynamic(map['startDate']) ?? DateTime.now(),
       endDate: _dateTimeFromDynamic(map['endDate']),
       isActive: map['isActive'] ?? true,
+      lastTakenAt: _dateTimeFromDynamic(map['lastTakenAt']),
       notes: map['notes'],
       color: map['color'],
     );
@@ -209,6 +212,7 @@ class MedicineReminder {
     'duration': duration,
     'startDate': startDate.toIso8601String(),
     'endDate': endDate?.toIso8601String(),
+    'lastTakenAt': lastTakenAt?.toIso8601String(),
     'isActive': isActive, 'notes': notes, 'color': color,
   };
 }

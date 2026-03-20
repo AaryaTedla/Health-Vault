@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
@@ -281,7 +282,7 @@ class _DocumentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isImage = doc.fileType == 'image';
-    final fileExists = File(doc.fileUrl).existsSync();
+    final fileExists = !kIsWeb && File(doc.fileUrl).existsSync();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),

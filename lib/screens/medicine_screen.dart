@@ -12,12 +12,22 @@ class MedicineScreen extends StatefulWidget {
 }
 
 class _MedicineScreenState extends State<MedicineScreen> {
+  bool _isTakenToday(MedicineReminder med) {
+    final takenAt = med.lastTakenAt;
+    if (takenAt == null) return false;
+    final now = DateTime.now();
+    return takenAt.year == now.year &&
+        takenAt.month == now.month &&
+        takenAt.day == now.day;
+  }
 
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final meds = appState.medicines;
     final active = meds.where((m) => m.isActive).toList();
+    final takenToday = active.where(_isTakenToday).length;
+    final adherence = active.isEmpty ? 0.0 : takenToday / active.length;
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -75,9 +85,9 @@ class _MedicineScreenState extends State<MedicineScreen> {
                   border: Border.all(color: AppTheme.divider)),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    const Text("Active Medicines", style: TextStyle(
+                    const Text("Today's Adherence", style: TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700)),
-                    Text('${active.length} total', style: const TextStyle(
+                    Text('$takenToday/${active.length}', style: const TextStyle(
                       fontSize: 15, fontWeight: FontWeight.w700,
                       color: AppTheme.primary)),
                   ]),
@@ -85,15 +95,15 @@ class _MedicineScreenState extends State<MedicineScreen> {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(5),
                     child: LinearProgressIndicator(
-                      value: meds.isEmpty ? 0 : active.length / meds.length,
+                      value: adherence,
                       backgroundColor: AppTheme.divider,
                       color: AppTheme.secondary,
                       minHeight: 10)),
                   const SizedBox(height: 8),
                   Text(
                     active.isEmpty
-                      ? 'No medicines added yet'
-                      : '${active.length} of ${meds.length} medicines active',
+                      ? 'No active medicines yet'
+                      : '$takenToday of ${active.length} medicines marked taken today',
                     style: const TextStyle(fontSize: 13,
                       color: AppTheme.textSecondary)),
                 ]),
@@ -136,6 +146,11 @@ class _MedicineScreenState extends State<MedicineScreen> {
                     return _MedicineCard(
                       medicine: med,
                       index: i,
+                      isTakenToday: _isTakenToday(med),
+                      onToggleTaken: () => context.read<AppState>().setMedicineTakenToday(
+                            med.id,
+                            !_isTakenToday(med),
+                          ),
                       onDelete: () => context.read<AppState>()
                         .deleteMedicine(med.id),
                     );
@@ -172,9 +187,12 @@ class _MedicineScreenState extends State<MedicineScreen> {
 class _MedicineCard extends StatelessWidget {
   final MedicineReminder medicine;
   final int index;
+  final bool isTakenToday;
+  final VoidCallback onToggleTaken;
   final VoidCallback onDelete;
 
   const _MedicineCard({required this.medicine, required this.index,
+    required this.isTakenToday, required this.onToggleTaken,
     required this.onDelete});
 
   @override
@@ -242,6 +260,26 @@ class _MedicineCard extends StatelessWidget {
                   fontWeight: FontWeight.w600, color: AppTheme.primary)),
               ]),
             )).toList(),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onToggleTaken,
+              icon: Icon(
+                isTakenToday ? Icons.undo_rounded : Icons.check_circle_rounded,
+                color: Colors.white,
+                size: 18,
+              ),
+              label: Text(
+                isTakenToday ? 'Marked Taken Today (Undo)' : 'Mark as Taken Today',
+                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: isTakenToday ? AppTheme.secondary : AppTheme.primary,
+                minimumSize: const Size(0, 40),
+              ),
+            ),
           ),
           if (medicine.notes != null && medicine.notes!.isNotEmpty) ...[
             const SizedBox(height: 8),
