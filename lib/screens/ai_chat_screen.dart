@@ -5,6 +5,7 @@ import '../services/app_state.dart';
 import '../services/ai_service.dart';
 import '../utils/app_theme.dart';
 import '../models/models.dart';
+import '../widgets/shared_widgets.dart';
 
 class AIChatScreen extends StatefulWidget {
   const AIChatScreen({super.key});
@@ -16,6 +17,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
   bool _isSending = false;
+  bool _isInputFocused = false;
 
   final List<ChatMessage> _messages = [
     ChatMessage(
@@ -44,17 +46,35 @@ class _AIChatScreenState extends State<AIChatScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(_onInputFocusChanged);
+  }
+
+  @override
   void dispose() {
+    _focusNode.removeListener(_onInputFocusChanged);
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
     super.dispose();
   }
 
+  void _onInputFocusChanged() {
+    if (!mounted) return;
+    final next = _focusNode.hasFocus;
+    if (next == _isInputFocused) return;
+    setState(() => _isInputFocused = next);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isKeyboardOpen = MediaQuery.of(context).viewInsets.bottom > 0;
+    final showQuickQuestions = _messages.length <= 2 && !_isInputFocused && !isKeyboardOpen;
+
     return Scaffold(
       backgroundColor: AppTheme.surface,
+      resizeToAvoidBottomInset: true,
       body: Column(
         children: [
           // Header
@@ -106,6 +126,11 @@ class _AIChatScreenState extends State<AIChatScreen> {
             ),
           ),
 
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: const DisclaimerBox(text: AppConstants.chatDisclaimer),
+          ),
+
           // Messages
           Expanded(
             child: ListView.builder(
@@ -117,7 +142,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
           ),
 
           // Quick questions
-          if (_messages.length <= 2)
+          if (showQuickQuestions)
             Container(
               color: Colors.white,
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 4),
@@ -152,62 +177,68 @@ class _AIChatScreenState extends State<AIChatScreen> {
             ),
 
           // Input
-          Container(
-            padding: EdgeInsets.only(
-              left: 16, right: 16, top: 10,
-              bottom: MediaQuery.of(context).padding.bottom + 10),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(top: BorderSide(color: AppTheme.divider))),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: _msgCtrl,
-                  focusNode: _focusNode,
-                  style: const TextStyle(fontSize: 15,
-                    color: AppTheme.textPrimary),
-                  maxLines: 4, minLines: 1,
-                  textCapitalization: TextCapitalization.sentences,
-                  enabled: !_isSending,
-                  decoration: InputDecoration(
-                    hintText: 'Describe how you feel...',
-                    hintStyle: const TextStyle(
-                      color: AppTheme.textHint, fontSize: 14),
-                    filled: true, fillColor: AppTheme.surface,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: BorderSide.none),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(24),
-                      borderSide: const BorderSide(
-                        color: Color(0xFF9B59B6), width: 1.5)),
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 18, vertical: 12),
+            Container(
+              padding: EdgeInsets.only(
+                left: 16,
+                right: 16,
+                top: 10,
+                bottom: MediaQuery.of(context).padding.bottom + 10,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                border: isKeyboardOpen
+                    ? null
+                    : const Border(top: BorderSide(color: AppTheme.divider)),
+              ),
+              child: Row(children: [
+                Expanded(
+                  child: TextField(
+                    controller: _msgCtrl,
+                    focusNode: _focusNode,
+                    style: const TextStyle(fontSize: 15,
+                      color: AppTheme.textPrimary),
+                    maxLines: 4, minLines: 1,
+                    textCapitalization: TextCapitalization.sentences,
+                    enabled: !_isSending,
+                    decoration: InputDecoration(
+                      hintText: 'Describe how you feel...',
+                      hintStyle: const TextStyle(
+                        color: AppTheme.textHint, fontSize: 14),
+                      filled: true, fillColor: AppTheme.surface,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: const BorderSide(
+                          color: Color(0xFF9B59B6), width: 1.5)),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 18, vertical: 12),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              GestureDetector(
-                onTap: _isSending ? null
-                  : () => _sendMessage(_msgCtrl.text),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 200),
-                  width: 48, height: 48,
-                  decoration: BoxDecoration(
-                    color: _isSending
-                      ? AppTheme.textHint : const Color(0xFF9B59B6),
-                    shape: BoxShape.circle),
-                  child: _isSending
-                    ? const Padding(padding: EdgeInsets.all(12),
-                        child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.send_rounded,
-                        color: Colors.white, size: 22)),
-              ),
-            ]),
+                const SizedBox(width: 10),
+                GestureDetector(
+                  onTap: _isSending ? null
+                    : () => _sendMessage(_msgCtrl.text),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    width: 48, height: 48,
+                    decoration: BoxDecoration(
+                      color: _isSending
+                        ? AppTheme.textHint : const Color(0xFF9B59B6),
+                      shape: BoxShape.circle),
+                    child: _isSending
+                      ? const Padding(padding: EdgeInsets.all(12),
+                          child: CircularProgressIndicator(
+                            color: Colors.white, strokeWidth: 2))
+                      : const Icon(Icons.send_rounded,
+                          color: Colors.white, size: 22)),
+                ),
+              ]),
           ),
         ],
       ),

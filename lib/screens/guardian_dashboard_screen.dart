@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:provider/provider.dart';
+import '../services/app_state.dart';
 import '../utils/app_theme.dart';
 import '../widgets/shared_widgets.dart';
 
@@ -8,19 +10,17 @@ class GuardianDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final patients = [
-      {
-        'name': 'Rajesh Kumar',
-        'relation': 'Father',
-        'age': 68,
-        'bloodGroup': 'B+',
-        'conditions': ['Type 2 Diabetes', 'Hypertension'],
-        'lastActive': '2 hours ago',
-        'medicinesTaken': '2/4',
-        'status': 'stable',
-        'lastReport': '12 Jan 2025',
-      }
-    ];
+    final state = context.watch<AppState>();
+    final patient = state.linkedPatientProfile;
+    final meds = state.medicines.where((m) => m.isActive).toList();
+    final docs = state.documents;
+    final takenToday = meds.where((m) {
+      final t = m.lastTakenAt;
+      if (t == null) return false;
+      final now = DateTime.now();
+      return t.year == now.year && t.month == now.month && t.day == now.day;
+    }).length;
+    final pendingDoses = meds.length - takenToday;
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -41,15 +41,19 @@ class GuardianDashboardScreen extends StatelessWidget {
                     const Text('Guardian Dashboard', style: TextStyle(
                       color: Colors.white, fontSize: 22, fontWeight: FontWeight.w700)),
                     const SizedBox(height: 4),
-                    Text('Monitoring ${patients.length} patient(s)', style: TextStyle(
+                    Text(
+                      patient == null
+                          ? 'Link a patient to start monitoring'
+                          : 'Monitoring 1 linked patient',
+                      style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.8), fontSize: 14)),
                     const SizedBox(height: 20),
                     Row(children: [
-                      _GuardianStatCard('Patients', '1', Icons.elderly_rounded),
+                      _GuardianStatCard('Patients', patient == null ? '0' : '1', Icons.elderly_rounded),
                       const SizedBox(width: 12),
-                      _GuardianStatCard('Alerts', '0', Icons.notifications_none_rounded),
+                      _GuardianStatCard('Alerts', pendingDoses > 0 ? '$pendingDoses' : '0', Icons.notifications_none_rounded),
                       const SizedBox(width: 12),
-                      _GuardianStatCard('Reports', '12', Icons.folder_rounded),
+                      _GuardianStatCard('Reports', '${docs.length}', Icons.folder_rounded),
                     ]),
                   ]),
                 ),
@@ -64,8 +68,27 @@ class GuardianDashboardScreen extends StatelessWidget {
           SliverList(
             delegate: SliverChildBuilderDelegate(
               (_, i) {
-                final p = patients[i];
-                final conditions = p['conditions'] as List;
+                if (patient == null) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+                    child: HealthCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: const [
+                          Text('No patient linked yet', style: TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w700)),
+                          SizedBox(height: 8),
+                          Text(
+                            'Ask your parent to generate an invite code from their Profile page and enter it in your Profile.',
+                            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
+                final conditions = patient.conditions;
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
                   child: HealthCard(
@@ -76,20 +99,20 @@ class GuardianDashboardScreen extends StatelessWidget {
                           decoration: const BoxDecoration(
                             color: Color(0xFFF0E6FF), shape: BoxShape.circle),
                           child: Center(child: Text(
-                            p['name'].toString().substring(0, 1),
+                            patient.name.isNotEmpty ? patient.name.substring(0, 1) : 'P',
                             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Color(0xFF8E44AD))))),
                         const SizedBox(width: 14),
                         Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(p['name'] as String, style: const TextStyle(
+                          Text(patient.name, style: const TextStyle(
                             fontSize: 17, fontWeight: FontWeight.w700)),
-                          Text('${p['relation']} · Age ${p['age']} · ${p['bloodGroup']}',
+                          Text('Linked Patient · Age ${patient.age ?? '-'} · ${patient.bloodGroup ?? '-'}',
                             style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary)),
                         ])),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
                             color: AppTheme.secondary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(10)),
-                          child: Text((p['status'] as String).toUpperCase(), style: const TextStyle(
+                          child: const Text('ACTIVE', style: TextStyle(
                             fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.secondary))),
                       ]),
 
@@ -101,11 +124,16 @@ class GuardianDashboardScreen extends StatelessWidget {
                       Row(children: [
                         const Icon(Icons.medication_rounded, color: AppTheme.primary, size: 18),
                         const SizedBox(width: 8),
-                        Text('Medicines today: ${p['medicinesTaken']}', style: const TextStyle(fontSize: 14)),
+                        Text('Medicines today: $takenToday/${meds.length}', style: const TextStyle(fontSize: 14)),
                         const Spacer(),
                         const Icon(Icons.calendar_today_rounded, color: AppTheme.textHint, size: 14),
                         const SizedBox(width: 4),
-                        Text('Last report: ${p['lastReport']}', style: const TextStyle(fontSize: 12, color: AppTheme.textHint)),
+                        Text(
+                          docs.isNotEmpty
+                              ? 'Last report: ${docs.first.uploadedAt.day}/${docs.first.uploadedAt.month}/${docs.first.uploadedAt.year}'
+                              : 'Last report: -',
+                          style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+                        ),
                       ]),
                       const SizedBox(height: 10),
 
@@ -143,7 +171,7 @@ class GuardianDashboardScreen extends StatelessWidget {
                   ).animate().fadeIn(delay: 200.ms),
                 );
               },
-              childCount: patients.length,
+              childCount: 1,
             ),
           ),
 
@@ -157,10 +185,32 @@ class GuardianDashboardScreen extends StatelessWidget {
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: HealthCard(
                     child: Column(children: [
-                      _AlertTile(Icons.medication_rounded, 'Rajesh took Metformin 500mg', '8:02 AM today', AppTheme.secondary),
-                      _AlertTile(Icons.medication_rounded, 'Rajesh took Amlodipine 5mg', '8:05 AM today', AppTheme.secondary),
-                      _AlertTile(Icons.upload_file_rounded, 'New report uploaded: Blood Sugar Test', 'Yesterday', AppTheme.primary),
-                      _AlertTile(Icons.warning_rounded, 'Missed: Aspirin 75mg at 2:00 PM', 'Yesterday', AppTheme.warning),
+                      if (patient == null)
+                        const _AlertTile(Icons.info_outline_rounded,
+                            'No linked patient updates yet',
+                            'Link pending', AppTheme.textHint)
+                      else ...[
+                        _AlertTile(
+                          Icons.medication_rounded,
+                          'Today: $takenToday medicines marked taken',
+                          'Live from patient app',
+                          AppTheme.secondary,
+                        ),
+                        _AlertTile(
+                          Icons.warning_rounded,
+                          pendingDoses > 0
+                              ? 'Pending doses today: $pendingDoses'
+                              : 'No pending doses right now',
+                          'Medication adherence',
+                          pendingDoses > 0 ? AppTheme.warning : AppTheme.secondary,
+                        ),
+                        _AlertTile(
+                          Icons.upload_file_rounded,
+                          'Reports uploaded: ${docs.length}',
+                          'Records overview',
+                          AppTheme.primary,
+                        ),
+                      ],
                     ]),
                   ).animate().fadeIn(delay: 300.ms),
                 ),

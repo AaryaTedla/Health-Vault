@@ -147,6 +147,9 @@ class _AISummaryScreenState extends State<AISummaryScreen> {
               ),
             ).animate().fadeIn(delay: 100.ms),
 
+            const SizedBox(height: 16),
+            const DisclaimerBox(text: AppConstants.medicalDisclaimer),
+
             const SizedBox(height: 20),
 
             // Generate button
@@ -234,8 +237,7 @@ class _AISummaryScreenState extends State<AISummaryScreen> {
                 )),
               ]),
 
-              const SizedBox(height: 16),
-              const DisclaimerBox(text: AppConstants.medicalDisclaimer),
+              const SizedBox(height: 8),
             ],
 
             const SizedBox(height: 30),

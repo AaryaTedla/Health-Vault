@@ -205,6 +205,7 @@ class _SignupScreenState extends State<SignupScreen> {
   final _conditionsCtrl = TextEditingController();
   String _accountType = 'patient';
   bool _obscure = true;
+  bool _acceptedTerms = false;
   int _step = 0;
 
   @override
@@ -382,6 +383,8 @@ class _SignupScreenState extends State<SignupScreen> {
   }
 
   Widget _buildSecurityStep() {
+    final state = context.watch<AppState>();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -420,24 +423,56 @@ class _SignupScreenState extends State<SignupScreen> {
                 color: AppTheme.textSecondary)),
             const SizedBox(height: 8),
             GestureDetector(
-              onTap: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const TermsScreen())),
-              child: const Text('Read full Terms & Conditions →',
-                style: TextStyle(color: AppTheme.primary,
-                  fontWeight: FontWeight.w600, fontSize: 13))),
+              onTap: () async {
+                final accepted = await Navigator.push<bool>(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TermsScreen()),
+                );
+                if (accepted == true && mounted) {
+                  setState(() => _acceptedTerms = true);
+                }
+              },
+              child: Text(
+                _acceptedTerms
+                    ? 'Terms accepted ✓ (Tap to review again)'
+                    : 'Read full Terms & Conditions →',
+                style: TextStyle(
+                  color: _acceptedTerms ? AppTheme.secondary : AppTheme.primary,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+            ),
           ]),
         ),
+        if (state.error != null) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.danger.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              state.error!,
+              style: const TextStyle(color: AppTheme.danger, fontSize: 13),
+            ),
+          ),
+        ],
         const SizedBox(height: 28),
         SizedBox(
           width: double.infinity, height: 58,
           child: ElevatedButton.icon(
-            onPressed: context.watch<AppState>().isLoading ? null : _handleSignup,
-            icon: context.watch<AppState>().isLoading
+            onPressed: state.isLoading ? null : _handleSignup,
+            icon: state.isLoading
               ? const SizedBox(width: 20, height: 20,
                   child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
               : const Icon(Icons.check_circle_outline, color: Colors.white),
-            label: const Text('Create Account & Accept Terms',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+            label: Text(
+              _acceptedTerms ? 'Create Account' : 'Accept Terms to Continue',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
           ),
         ),
       ],
@@ -447,6 +482,17 @@ class _SignupScreenState extends State<SignupScreen> {
   Future<void> _handleSignup() async {
     FocusScope.of(context).unfocus();
     if (!_formKey.currentState!.validate()) return;
+    if (!_acceptedTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please open Terms and tap "I Understand & Accept" first.'),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+      return;
+    }
+
+    context.read<AppState>().clearError();
     final conditions = _conditionsCtrl.text.trim().isEmpty
       ? <String>[]
       : _conditionsCtrl.text.split(',').map((e) => e.trim()).toList();

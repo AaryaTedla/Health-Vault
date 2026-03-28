@@ -1,275 +1,291 @@
-# HealthVault — Flutter Prototype
-## Team Tesla · PES University CIE
+# HealthVault
 
----
+A Flutter application for managing personal health records, medicine reminders, AI-assisted summaries/chat, and patient-guardian collaboration.
 
-## 📁 Project Structure
+## Overview
 
-```
+HealthVault helps users:
+- Store and organize medical records
+- Track medicines and reminders
+- View health history and usage insights
+- Use AI features for summaries and chat assistance
+- Share access with guardians using permission-based controls
+
+## Tech Stack
+
+- Flutter (Dart)
+- Provider (state management)
+- Firebase Auth
+- Cloud Firestore
+- Local notifications
+
+## Project Structure (Detailed)
+
+```text
 healthvault_ai/
 ├── lib/
-│   ├── main.dart                    ← Entry point
+│   ├── main.dart
+│   │   └── App bootstrap: dotenv load, Firebase init, notifications init,
+│   │      provider wiring, root MaterialApp
 │   ├── models/
-│   │   └── models.dart              ← AppUser, HealthDocument, MedicineReminder, etc.
+│   │   └── models.dart
+│   │      └── Data models: AppUser, HealthDocument, MedicineReminder,
+│   │         Appointment, ChatMessage, EmergencyContact, etc.
 │   ├── services/
-│   │   ├── app_state.dart           ← Auth + global state (Provider)
-│   │   ├── ai_service.dart          ← Gemini AI integration
-│   │   └── notification_service.dart← Local push notifications
-│   ├── utils/
-│   │   └── app_theme.dart           ← Colors, typography, constants
+│   │   ├── app_state.dart
+│   │   │   └── Central state layer (Provider): auth/session, role context,
+│   │   │      docs/medicines/appointments CRUD, permissions, export/delete,
+│   │   │      reminder scheduling, pairing orchestration
+│   │   ├── ai_service.dart
+│   │   │   └── AI request handling (summary/chat prompts + responses)
+│   │   ├── firebase_service.dart
+│   │   │   └── Firebase adapters: auth, profile, Firestore reads/writes,
+│   │   │      pairing workflows
+│   │   ├── medicine_autofill_service.dart
+│   │   │   └── Dataset-backed medicine suggestion engine with indexing,
+│   │   │      ranking, typo rescue
+│   │   ├── notification_service.dart
+│   │   │   └── Local notification channels, medicine schedules, SOS alerts,
+│   │   │      missed-dose alerts
+│   │   ├── document_text_extractor.dart
+│   │   │   └── OCR text extraction and lightweight structured field extraction
+│   │   ├── audit_service.dart
+│   │   │   └── Writes activity logs to Firestore auditLogs
+│   │   └── risk_flag_service.dart
+│   │       └── Rule-based medicine risk flag generation
+│   ├── screens/
+│   │   ├── auth_screens.dart
+│   │   │   └── Login + multi-step signup + terms acceptance
+│   │   ├── main_shell.dart
+│   │   │   └── Bottom navigation shell + role-aware tab routing + profile
+│   │   ├── dashboard_screen.dart
+│   │   │   └── Patient home: quick actions, stats, notifications sheet
+│   │   ├── guardian_dashboard_screen.dart
+│   │   │   └── Guardian home: linked patient overview and updates
+│   │   ├── documents_screen.dart
+│   │   │   └── Records listing, searching, filtering, access gating
+│   │   ├── upload_document_screen.dart
+│   │   │   └── File pick/upload + OCR + AI summary trigger
+│   │   ├── ai_summary_screen.dart
+│   │   │   └── AI report summary rendering + disclaimer
+│   │   ├── ai_chat_screen.dart
+│   │   │   └── Chat UI, quick prompts, disclaimer, keyboard-aware behavior
+│   │   ├── medicine_screen.dart
+│   │   │   └── Medicine list/add/take/delete + autofill + risk/overdue banners
+│   │   ├── medical_history_screen.dart
+│   │   │   └── Live dashboard, timeline, insights and planning actions
+│   │   ├── appointment_screen.dart
+│   │   │   └── Appointment CRUD and completion state
+│   │   ├── usage_analytics_screen.dart
+│   │   │   └── Usage stats and trend visualizations
+│   │   ├── emergency_screen.dart
+│   │   │   └── SOS flow with contact selection and emergency notifications
+│   │   └── terms_screen.dart
+│   │       └── Terms + mandatory medical disclaimer acceptance
 │   ├── widgets/
-│   │   └── shared_widgets.dart      ← Reusable UI components
-│   └── screens/
-│       ├── auth_screens.dart        ← Login + Signup
-│       ├── terms_screen.dart        ← Terms & Conditions
-│       ├── main_shell.dart          ← Bottom navigation shell
-│       ├── dashboard_screen.dart    ← Home dashboard
-│       ├── documents_screen.dart    ← Health records list + search
-│       ├── upload_document_screen.dart ← Upload medical files
-│       ├── ai_summary_screen.dart   ← AI document explanation
-│       ├── medicine_screen.dart     ← Medicine reminders + autofill
-│       ├── ai_chat_screen.dart      ← AI health chatbot
-│       ├── medical_history_screen.dart ← Charts + AI insights + timeline
-│       ├── guardian_dashboard_screen.dart ← Guardian view
-│       ├── emergency_screen.dart    ← SOS emergency alert
-│       └── profile_screen.dart      ← Profile + settings
+│   │   └── shared_widgets.dart
+│   │      └── Reusable UI widgets (cards, headers, empty states, disclaimer)
+│   └── utils/
+│       └── app_theme.dart
+│          └── Theme constants, colors, styles, shared app constants
+├── assets/
+│   ├── images/
+│   ├── icons/
+│   └── data/
+│      └── medicines_v2.json
+│         └── Medicine autocomplete runtime dataset
 ├── android/
-│   ├── app/
-│   │   ├── build.gradle
-│   │   └── src/main/
-│   │       ├── AndroidManifest.xml
-│   │       ├── kotlin/.../MainActivity.kt
-│   │       └── res/
-│   ├── build.gradle
-│   ├── settings.gradle
-│   └── gradle.properties
-└── pubspec.yaml
+│   └── Native Android config and Gradle setup
+├── firestore.rules
+│   └── Firestore security rules for role + pairing + permission model
+├── firebase.json
+│   └── Firebase CLI deployment config
+├── pubspec.yaml
+│   └── Flutter metadata, dependencies, asset declarations
+└── .gitignore
+   └── Secret/local/generated files ignore policy
 ```
 
----
+## Architecture Notes
 
-## ✅ Features Implemented
+- Presentation layer: `lib/screens/*` and `lib/widgets/*`
+- State layer: `lib/services/app_state.dart` (single source of truth)
+- Integration layer: `lib/services/firebase_service.dart`, `ai_service.dart`, `notification_service.dart`
+- Domain layer: `lib/models/models.dart`
+- Static assets: `assets/*`
 
-| Feature | Status |
-|---|---|
-| Login / Signup (Patient & Guardian) | ✅ |
-| Terms & Conditions with Medical Disclaimer | ✅ |
-| Document Upload (PDF/Image) | ✅ |
-| Health Records Dashboard with Search & Filter | ✅ |
-| AI Document Summary (Gemini API) | ✅ |
-| Multilingual Support (EN/HI/TE/KN/TA) | ✅ |
-| Voice Playback of Summary | ✅ (TTS ready) |
-| Medicine Reminders with Autocomplete | ✅ |
-| Dose Tracking (mark taken/pending) | ✅ |
-| AI Health Chat Assistant | ✅ |
-| Symptom Explainer with quick questions | ✅ |
-| Medical History Timeline | ✅ |
-| Health Charts (7-day trends) | ✅ |
-| AI Health Insights & Meal Recommendations | ✅ |
-| Emergency SOS Alert | ✅ |
-| Guardian Dashboard | ✅ |
-| Emergency Contacts Management | ✅ |
-| Profile + Language Settings | ✅ |
+The app follows a practical stateful pattern where user actions update local state first and then sync to cloud/storage for responsive UX.
 
----
+## Prerequisites
 
-## 🚀 Setup Guide (Linux + Android Studio)
+Before running the app, ensure you have:
+- Flutter SDK installed
+- Android Studio / Android SDK
+- A configured emulator or physical device
+- Firebase project (for auth and cloud features)
 
-### Step 1 — Install Flutter on Linux
+## Getting Started
+
+### 1. Clone and open project
 
 ```bash
-# Download Flutter SDK
-cd ~
-wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.19.0-stable.tar.xz
-tar xf flutter_linux_3.19.0-stable.tar.xz
-
-# Add to PATH (add to ~/.bashrc)
-export PATH="$PATH:$HOME/flutter/bin"
-source ~/.bashrc
-
-# Verify
-flutter doctor
-```
-
-### Step 2 — Install Android Studio
-
-```bash
-# Download from: https://developer.android.com/studio
-# Or via snap:
-sudo snap install android-studio --classic
-
-# Open Android Studio → SDK Manager → Install:
-# - Android SDK Platform 34
-# - Android SDK Build-Tools 34
-# - Android Emulator
-# - Android SDK Platform-Tools
-```
-
-### Step 3 — Create Emulator
-
-```
-Android Studio → Device Manager → Create Device
-→ Pixel 6 (or any) → Android 14 (API 34)
-→ Finish → Play button to start emulator
-```
-
-### Step 4 — Set up the Project
-
-```bash
-# Clone / copy this project folder
+git clone <your-repo-url>
 cd healthvault_ai
+```
 
-# Install dependencies
+### 2. Install dependencies
+
+```bash
 flutter pub get
-
-# Verify setup
-flutter doctor -v
 ```
 
-### Step 5 — Firebase Setup (optional for full backend)
+### 3. Configure Firebase
+
+Place Firebase Android config file at:
+- `android/app/google-services.json`
+
+Deploy Firestore rules:
 
 ```bash
-# Install Firebase CLI
-npm install -g firebase-tools
 firebase login
-
-# Install FlutterFire CLI
-dart pub global activate flutterfire_cli
-
-# Configure Firebase (create project at console.firebase.google.com first)
-flutterfire configure --project=YOUR_PROJECT_ID
-
-# This generates: lib/firebase_options.dart
-# Then uncomment Firebase.initializeApp() in main.dart
+firebase use <project-id>
+firebase deploy --only firestore:rules
 ```
 
-### Step 6 — Add API Key Securely (Do Not Hardcode)
+### 4. Configure AI API key (optional)
 
-The app reads the key from compile-time environment:
-
-- `OPENROUTER_API_KEY`
-
-Get your key from OpenRouter and run with `--dart-define`:
+Run with API key via dart-define:
 
 ```bash
-flutter run --dart-define=OPENROUTER_API_KEY=YOUR_OPENROUTER_KEY
+flutter run --dart-define=OPENROUTER_API_KEY=<your-key>
 ```
 
-Optional local-only setup for convenience (Linux/macOS):
+Without the key, AI features may use fallback behavior depending on implementation.
+
+### 5. Run the app
 
 ```bash
-# Add once to ~/.bashrc or ~/.zshrc
-export OPENROUTER_API_KEY="YOUR_OPENROUTER_KEY"
-
-# Reload shell
-source ~/.bashrc
-
-# Run app
-flutter run --dart-define=OPENROUTER_API_KEY=$OPENROUTER_API_KEY
-```
-
-Security notes:
-
-- Never commit real API keys to source code.
-- Never paste keys into `lib/utils/app_theme.dart` or any tracked file.
-
-### Step 7 — Run the App
-
-```bash
-# List connected devices / emulators
-flutter devices
-
-# Run demo mode (works without API key)
 flutter run
+```
 
-# Run with AI enabled
-flutter run --dart-define=OPENROUTER_API_KEY=YOUR_OPENROUTER_KEY
+### 6. Static analysis
 
-# Run on specific device
-flutter run -d emulator-5554
+```bash
+flutter analyze
+```
 
-# Build APK for sharing
+## Build
+
+### Debug APK
+
+```bash
 flutter build apk --debug
-# Output: build/app/outputs/flutter-apk/app-debug.apk
 ```
 
----
+### Release APK
 
-## 🔑 Demo Mode
-
-The app runs **fully in demo mode** without any API keys or Firebase setup:
-
-- **Login**: Any email + any 6+ character password
-- **AI Summaries**: Returns realistic mock medical report summaries
-- **AI Chat**: Returns helpful mock health responses
-- **All screens**: Fully navigable with realistic sample data
-
----
-
-## 🔧 Key Dependencies
-
-| Package | Purpose |
-|---|---|
-| `provider` | State management |
-| `firebase_auth` | Authentication |
-| `cloud_firestore` | Database |
-| `firebase_storage` | File storage |
-| `flutter_animate` | Smooth animations |
-| `fl_chart` | Health trend charts |
-| `flutter_local_notifications` | Medicine reminders |
-| `flutter_tts` | Voice playback |
-| `speech_to_text` | Voice input |
-| `file_picker` | Document upload |
-| `google_fonts` | Typography (Poppins) |
-| `http` | Gemini API calls |
-
----
-
-## 📱 Screen Flow
-
-```
-App Launch
-  └─ Not logged in → LoginScreen
-       ├─ SignupScreen → TermsScreen → MainShell
-       └─ LoginScreen → MainShell
-            ├─ Tab 1: DashboardScreen
-            │    ├─ EmergencyScreen (SOS)
-            │    └─ UploadDocumentScreen
-            ├─ Tab 2: DocumentsScreen
-            │    ├─ UploadDocumentScreen
-            │    └─ AISummaryScreen
-            ├─ Tab 3: MedicineScreen
-            │    └─ AddMedicineSheet (bottom sheet)
-            ├─ Tab 4: AIChatScreen
-            └─ Tab 5: ProfileScreen
+```bash
+flutter build apk --release
 ```
 
----
+## Core Features (Detailed)
 
-## 🎨 Design Principles (Elderly-Friendly)
+### 1. Authentication and Roles
+- Email/password sign-in and sign-up.
+- Account type selection (`patient` or `guardian`) at signup.
+- Terms and medical disclaimer acceptance required during onboarding.
 
-- **Font size**: Minimum 13px, most text 15-16px
-- **Button height**: 60px minimum (big tap targets)
-- **Color contrast**: High contrast blue/white/green palette
-- **Icons**: Large, clear, labeled
-- **Navigation**: Simple 5-tab bottom bar, always visible
-- **Animations**: Smooth but not distracting
-- **Error states**: Clear, friendly messages
-- **Language**: Simple words, no medical jargon in UI
+### 2. Role-Based Access Control
+- Patient is data owner.
+- Guardian accesses patient data only after pairing and approval.
+- Granular permission toggles:
+   - view records
+   - view medicines
+   - manage medicines
+   - receive emergency alerts
 
----
+### 3. Family Pairing Workflow
+- Patient generates invite code.
+- Guardian submits link request using invite code.
+- Patient approves/rejects request.
+- Patient can unlink guardian later.
 
-## ⚕️ Medical Disclaimer
+### 4. Documents and Reports
+- Upload document (image/PDF depending on platform support).
+- OCR extraction for readable text.
+- Structured field extraction (doctor/patient/date/basic values when detected).
+- AI summary generation and display with medical disclaimer.
+- Search/filter and delete records.
 
-> AI-generated summaries, explanations, and voice responses are NOT medical diagnoses.
-> Always consult a qualified doctor before making any medical decisions.
+### 5. AI Assistant
+- AI document summary for uploaded records.
+- AI chat for health-related support prompts.
+- Safety messaging/disclaimer shown in AI surfaces.
 
-This disclaimer appears on:
-- Terms & Conditions page (mandatory acceptance)
-- Every AI summary
-- Every AI chat response
-- The AI Insights dashboard
+### 6. Medicine Management
+- Add medicines with dosage/frequency/duration/times.
+- Dataset-backed autocomplete suggestions.
+- Typo-tolerant medicine matching and ranked suggestions.
+- Mark dose as taken for today.
+- Delete and manage reminders.
+- Overdue dose detection with visual alerts.
+- Lightweight interaction risk flags.
 
----
+### 7. Notifications
+- Scheduled local medicine reminders.
+- Emergency/SOS notification flow.
+- Missed-dose alert notifications.
+- Notification tray/home indicator integration.
 
-*Built by Team Tesla · PES University CIE · Phase 2 Prototype*
+### 8. Medical History and Insights
+- Live activity dashboard (records, adherence, trends).
+- Timeline of records, medicine actions, and appointments.
+- Quick routes to analytics and appointment planner.
+
+### 9. Appointments and Analytics
+- Appointment add/list/delete/mark completed.
+- Usage analytics cards and trend rows for engagement/activity.
+
+### 10. Data Controls
+- Export data to JSON file with resolved path feedback.
+- Delete health data action for patient account.
+- Audit logging for sensitive actions in Firestore.
+
+## Environment and Secrets
+
+Sensitive files and local configs should not be committed. Use `.gitignore` for:
+- `.env`
+- Firebase local config files
+- Local logs and generated files
+
+## Development Notes
+
+- Main state orchestration is in `lib/services/app_state.dart`
+- Backend integrations are in `lib/services/firebase_service.dart`
+- UI flows are under `lib/screens/`
+- Shared components live in `lib/widgets/`
+
+## Troubleshooting
+
+- If login/signup fails, verify Firebase Auth is enabled
+- If Firestore operations fail, verify `firestore.rules` deployment
+- If reminders are not shown, verify notification permissions on device
+- If AI requests fail, verify API key and network connectivity
+
+## Contributing
+
+1. Create a feature branch
+2. Make your changes
+3. Run:
+   - `flutter pub get`
+   - `flutter analyze`
+4. Commit with clear messages
+5. Open a pull request
+
+## License
+
+This project is for academic/prototype use unless otherwise specified.
+
+## Disclaimer
+
+HealthVault is an assistive tool. AI outputs are informational and not medical advice. Always consult a licensed healthcare professional for diagnosis or treatment decisions.

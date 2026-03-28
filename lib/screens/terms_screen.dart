@@ -9,9 +9,10 @@ class TermsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('Terms & Conditions')),
-      body: SingleChildScrollView(
+      body: ListView(
         padding: const EdgeInsets.all(24),
-        child: Column(
+        children: [
+          Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Container(
@@ -118,7 +119,7 @@ class TermsScreen extends StatelessWidget {
             BigButton(
               label: 'I Understand & Accept',
               icon: Icons.check_circle_outline,
-              onTap: () => Navigator.pop(context),
+              onTap: () => Navigator.pop(context, true),
             ),
             const SizedBox(height: 16),
             Center(
@@ -128,6 +129,7 @@ class TermsScreen extends StatelessWidget {
             const SizedBox(height: 24),
           ],
         ),
+        ],
       ),
     );
   }

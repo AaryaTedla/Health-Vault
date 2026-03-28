@@ -56,7 +56,7 @@ class DashboardScreen extends StatelessWidget {
                         IconButton(
                           icon: const Icon(Icons.notifications_rounded,
                             color: Colors.white, size: 28),
-                          onPressed: () {}),
+                          onPressed: () => _showNotificationsSheet(context)),
                         Positioned(top: 8, right: 8,
                           child: Container(
                             width: 10, height: 10,
@@ -364,6 +364,77 @@ class DashboardScreen extends StatelessWidget {
 
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
+      ),
+    );
+  }
+
+  void _showNotificationsSheet(BuildContext context) {
+    final appState = context.read<AppState>();
+    final overdue = appState.overdueMedicinesNow();
+    final now = DateTime.now();
+    final upcoming = appState.appointments
+        .where((a) => a.dateTime.isAfter(now) && !a.completed)
+        .toList()
+      ..sort((a, b) => a.dateTime.compareTo(b.dateTime));
+
+    showModalBottomSheet(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (_) => SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Notifications',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 10),
+              if (overdue.isEmpty && upcoming.isEmpty)
+                const Text(
+                  'No pending alerts right now.',
+                  style: TextStyle(color: AppTheme.textSecondary),
+                )
+              else ...[
+                if (overdue.isNotEmpty)
+                  Text(
+                    'Overdue Medicines (${overdue.length})',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                if (overdue.isNotEmpty)
+                  ...overdue.take(3).map((m) => Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          '• ${m.medicineName} (${m.dosage})',
+                          style: const TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      )),
+                if (overdue.isNotEmpty && upcoming.isNotEmpty)
+                  const SizedBox(height: 10),
+                if (upcoming.isNotEmpty)
+                  Text(
+                    'Upcoming Appointments (${upcoming.length})',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                if (upcoming.isNotEmpty)
+                  ...upcoming.take(3).map((a) => Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          '• ${a.title} • ${a.hospital}',
+                          style: const TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      )),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }

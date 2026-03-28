@@ -1,17 +1,33 @@
 # Local environment secrets
 .env
 
+# Firebase local app config (keep sample files/docs instead)
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+macos/Runner/GoogleService-Info.plist
+
 # Build and tool outputs
 .dart_tool/
 build/
 android/.gradle/
 android/local.properties
+coverage/
+
+# Logs
+*.log
+firebase-debug.log*
+flutter_*.log
 
 # Flutter generated files
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+**/GeneratedPluginRegistrant.java
+
+# Large/raw data sources (runtime curated assets can still be tracked)
+assets/data/*.csv
 
 # IDE files
 .idea/
 .vscode/
+*.iml

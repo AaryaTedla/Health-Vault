@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
@@ -9,6 +10,8 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
 
   static Future<void> init() async {
+    if (kIsWeb) return;
+
     tz.initializeTimeZones();
     tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
 
@@ -47,10 +50,13 @@ class NotificationService {
     required String dosage,
     required String time, // "08:00"
   }) async {
+    if (kIsWeb) return;
+
     final parts = time.split(':');
+    if (parts.length < 2) return;
     final hour = int.parse(parts[0]);
-    final minute = int.parse(parts[1].split(' ')[0]);
-    final isPm = time.contains('PM');
+    final minute = int.parse(parts[1].split(' ').first);
+    final isPm = time.toUpperCase().contains('PM');
     final h24 = isPm && hour != 12 ? hour + 12 : (!isPm && hour == 12 ? 0 : hour);
 
     final now = tz.TZDateTime.now(tz.local);
@@ -91,6 +97,8 @@ class NotificationService {
     required String contactName,
     required String patientName,
   }) async {
+    if (kIsWeb) return;
+
     const androidDetails = AndroidNotificationDetails(
       'emergency_alerts',
       'Emergency Alerts',
@@ -116,6 +124,8 @@ class NotificationService {
     required String patientName,
     required String update,
   }) async {
+    if (kIsWeb) return;
+
     const androidDetails = AndroidNotificationDetails(
       'guardian_updates',
       'Guardian Updates',
@@ -133,12 +143,40 @@ class NotificationService {
     );
   }
 
+  static Future<void> showMissedDoseAlert({
+    required String patientName,
+    required int count,
+  }) async {
+    if (kIsWeb) return;
+    if (count <= 0) return;
+
+    const androidDetails = AndroidNotificationDetails(
+      'missed_dose_alerts',
+      'Missed Dose Alerts',
+      channelDescription: 'Alerts when medicine doses are overdue',
+      importance: Importance.high,
+      priority: Priority.high,
+      color: Color(0xFFF39C12),
+    );
+
+    await _plugin.show(
+      9001,
+      'Missed Dose Alert',
+      '$patientName has $count overdue medicine ${count == 1 ? 'dose' : 'doses'} today.',
+      const NotificationDetails(android: androidDetails),
+    );
+  }
+
   // ─── Cancel all reminders for a medicine ─────────────────────────────
   static Future<void> cancelMedicineReminders(List<int> ids) async {
+    if (kIsWeb) return;
     for (final id in ids) {
       await _plugin.cancel(id);
     }
   }
 
-  static Future<void> cancelAll() async => _plugin.cancelAll();
+  static Future<void> cancelAll() async {
+    if (kIsWeb) return;
+    await _plugin.cancelAll();
+  }
 }

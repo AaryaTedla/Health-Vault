@@ -249,6 +249,48 @@ class HealthStat {
   });
 }
 
+class Appointment {
+  final String id;
+  final String patientId;
+  final String title;
+  final String hospital;
+  final DateTime dateTime;
+  final String? notes;
+  final bool completed;
+
+  Appointment({
+    required this.id,
+    required this.patientId,
+    required this.title,
+    required this.hospital,
+    required this.dateTime,
+    this.notes,
+    this.completed = false,
+  });
+
+  factory Appointment.fromMap(Map<String, dynamic> map) {
+    return Appointment(
+      id: map['id'] ?? '',
+      patientId: map['patientId'] ?? '',
+      title: map['title'] ?? '',
+      hospital: map['hospital'] ?? '',
+      dateTime: _dateTimeFromDynamic(map['dateTime']) ?? DateTime.now(),
+      notes: map['notes'],
+      completed: map['completed'] == true,
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'patientId': patientId,
+        'title': title,
+        'hospital': hospital,
+        'dateTime': dateTime.toIso8601String(),
+        'notes': notes,
+        'completed': completed,
+      };
+}
+
 DateTime? _dateTimeFromDynamic(dynamic value) {
   if (value == null) return null;
   if (value is DateTime) return value;

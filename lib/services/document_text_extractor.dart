@@ -46,4 +46,32 @@ class DocumentTextExtractor {
       await recognizer.close();
     }
   }
+
+  static Map<String, String> extractStructuredFields(String text) {
+    final normalized = text.replaceAll('\r', ' ');
+    String? firstMatch(RegExp re) {
+      final match = re.firstMatch(normalized);
+      if (match == null) return null;
+      if (match.groupCount >= 1) {
+        return match.group(1)?.trim();
+      }
+      return match.group(0)?.trim();
+    }
+
+    final doctor = firstMatch(RegExp(r'(?:Dr\.?\s+)([A-Za-z .]{3,40})'));
+    final patient = firstMatch(RegExp(r'(?:Patient(?:\s*Name)?[:\-]\s*)([A-Za-z .]{3,40})', caseSensitive: false));
+    final bp = firstMatch(RegExp(r'\b(\d{2,3}\s*/\s*\d{2,3})\b'));
+    final sugar = firstMatch(RegExp(r'(?:glucose|sugar)[^\d]{0,20}(\d{2,3})', caseSensitive: false));
+    final hemoglobin = firstMatch(RegExp(r'(?:hemoglobin|hb)[^\d]{0,20}(\d{1,2}\.?\d{0,2})', caseSensitive: false));
+    final date = firstMatch(RegExp(r'\b(\d{1,2}[\-/]\d{1,2}[\-/]\d{2,4})\b'));
+
+    final output = <String, String>{};
+    if (patient != null && patient.isNotEmpty) output['patientName'] = patient;
+    if (doctor != null && doctor.isNotEmpty) output['doctorName'] = doctor;
+    if (date != null && date.isNotEmpty) output['reportDate'] = date;
+    if (bp != null && bp.isNotEmpty) output['bloodPressure'] = bp;
+    if (sugar != null && sugar.isNotEmpty) output['glucose'] = sugar;
+    if (hemoglobin != null && hemoglobin.isNotEmpty) output['hemoglobin'] = hemoglobin;
+    return output;
+  }
 }

@@ -201,11 +201,16 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
           _extractionSucceeded = false;
         });
         String? extractedText;
+        Map<String, String> structuredFields = const {};
         if (_selectedFile != null) {
           extractedText = await DocumentTextExtractor.extractTextFromFile(
             filePath: savedPath,
             fileExtension: _fileExtension ?? '',
           );
+          if (extractedText != null && extractedText.trim().isNotEmpty) {
+            structuredFields =
+                DocumentTextExtractor.extractStructuredFields(extractedText);
+          }
         }
         setState(() {
           _extractionSucceeded = extractedText != null && extractedText.trim().isNotEmpty;
@@ -220,10 +225,17 @@ class _UploadDocumentScreenState extends State<UploadDocumentScreen> {
                 extractedText.length > 4000 ? 4000 : extractedText.length,
               );
 
+        final structuredText = structuredFields.isEmpty
+            ? 'No structured fields identified.'
+            : structuredFields.entries
+                .map((e) => '${e.key}: ${e.value}')
+                .join('\n');
+
         aiSummary = await AIService.generateDocumentSummary(
           documentText: 'Document: ${_nameCtrl.text}, Type: $_docType, '
               'Hospital: ${_hospitalCtrl.text}. '
               'Notes: ${_notesCtrl.text.isEmpty ? "None" : _notesCtrl.text}\n\n'
+              'Structured Fields:\n$structuredText\n\n'
               'Extracted Report Text:\n$cappedExtractedText',
           documentType: _docType,
           language: appState.selectedLanguage,

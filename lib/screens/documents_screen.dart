@@ -60,8 +60,11 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final docs = context.watch<AppState>().documents;
-    final filtered = _filtered(docs);
+    final state = context.watch<AppState>();
+    final docs = state.documents;
+    final canView = state.canViewDocuments;
+    final canEdit = !state.isGuardian;
+    final filtered = canView ? _filtered(docs) : <HealthDocument>[];
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -158,16 +161,22 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
             ? SliverToBoxAdapter(
                 child: EmptyState(
                   icon: Icons.folder_open_rounded,
-                  title: docs.isEmpty
-                    ? 'No documents yet'
-                    : 'No documents found',
-                  subtitle: docs.isEmpty
-                    ? 'Upload your first health document to get started.'
-                    : 'Try a different search or filter.',
-                  buttonLabel: 'Upload Document',
-                  onButton: () => Navigator.push(context,
-                    MaterialPageRoute(
-                      builder: (_) => const UploadDocumentScreen())),
+                  title: !canView
+                    ? 'Access restricted'
+                    : (docs.isEmpty ? 'No documents yet' : 'No documents found'),
+                  subtitle: !canView
+                    ? 'Patient has not granted records access yet.'
+                    : (docs.isEmpty
+                        ? (canEdit
+                            ? 'Upload your first health document to get started.'
+                            : 'No records shared by the patient yet.')
+                        : 'Try a different search or filter.'),
+                  buttonLabel: canEdit && canView ? 'Upload Document' : null,
+                  onButton: canEdit && canView
+                      ? () => Navigator.push(context,
+                          MaterialPageRoute(
+                              builder: (_) => const UploadDocumentScreen()))
+                      : null,
                 ),
               )
             : SliverList(
@@ -192,7 +201,7 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
                               'aiSummary': doc.aiSummary,
                               'notes': doc.notes,
                             }))),
-                      onDelete: () => _confirmDelete(context, doc),
+                      onDelete: canEdit ? () => _confirmDelete(context, doc) : null,
                     );
                   },
                   childCount: filtered.length,
@@ -202,14 +211,16 @@ class _DocumentsScreenState extends State<DocumentsScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(context,
-          MaterialPageRoute(builder: (_) => const UploadDocumentScreen())),
-        backgroundColor: AppTheme.primary,
-        icon: const Icon(Icons.upload_file_rounded, color: Colors.white),
-        label: const Text('Upload', style: TextStyle(
-          color: Colors.white, fontWeight: FontWeight.w700)),
-      ),
+      floatingActionButton: canEdit
+          ? FloatingActionButton.extended(
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const UploadDocumentScreen())),
+              backgroundColor: AppTheme.primary,
+              icon: const Icon(Icons.upload_file_rounded, color: Colors.white),
+              label: const Text('Upload', style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w700)),
+            )
+          : null,
     );
   }
 
@@ -271,7 +282,7 @@ class _DocumentCard extends StatelessWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onViewSummary;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   const _DocumentCard({
     required this.doc, required this.index,
@@ -336,8 +347,11 @@ class _DocumentCard extends StatelessWidget {
               const SizedBox(height: 4),
               GestureDetector(
                 onTap: onDelete,
-                child: const Icon(Icons.delete_outline_rounded,
-                  color: AppTheme.danger, size: 20)),
+                child: Icon(
+                  Icons.delete_outline_rounded,
+                  color: onDelete == null ? AppTheme.textHint : AppTheme.danger,
+                  size: 20,
+                )),
             ]),
           ]),
           const SizedBox(height: 12),

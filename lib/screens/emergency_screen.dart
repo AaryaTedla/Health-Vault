@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
+import '../services/notification_service.dart';
 import '../utils/app_theme.dart';
 import '../widgets/shared_widgets.dart';
 
@@ -17,12 +18,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _pulseController;
   bool _alertSent = false;
-
-  final List<Map<String, dynamic>> _emergencyContacts = [
-    {'name': 'Priya Kumar', 'relation': 'Daughter', 'phone': '+91 98765 11111', 'selected': true},
-    {'name': 'Amit Kumar', 'relation': 'Son', 'phone': '+91 98765 22222', 'selected': true},
-    {'name': 'Dr. R. Sharma', 'relation': 'Doctor', 'phone': '+91 98765 33333', 'selected': false},
-  ];
+  final Set<String> _selectedPhones = <String>{};
 
   @override
   void initState() {
@@ -36,6 +32,12 @@ class _EmergencyScreenState extends State<EmergencyScreen>
 
   @override
   Widget build(BuildContext context) {
+    final user = context.watch<AppState>().currentUser;
+    final contacts = user?.emergencyContacts ?? [];
+    if (_selectedPhones.isEmpty && contacts.isNotEmpty) {
+      _selectedPhones.addAll(contacts.map((c) => c.phone));
+    }
+
     return Scaffold(
       backgroundColor: Colors.white,
       appBar: AppBar(
@@ -102,37 +104,79 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                 fontSize: 16, fontWeight: FontWeight.w700))),
             const SizedBox(height: 12),
 
-            ...List.generate(_emergencyContacts.length, (i) {
-              final contact = _emergencyContacts[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: HealthCard(
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 48, height: 48,
-                        decoration: BoxDecoration(
-                          color: AppTheme.primary.withValues(alpha: 0.08), shape: BoxShape.circle),
-                        child: Center(child: Text(
-                          contact['name'].toString().substring(0, 1),
-                          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.primary))),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        Text(contact['name'], style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-                        Text('${contact['relation']} · ${contact['phone']}',
-                          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
-                      ])),
-                      Checkbox(
-                        value: contact['selected'],
-                        activeColor: AppTheme.primary,
-                        onChanged: (v) => setState(() => _emergencyContacts[i]['selected'] = v),
-                      ),
-                    ],
-                  ),
+            if (contacts.isEmpty)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: AppTheme.warning.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
                 ),
-              );
-            }),
+                child: const Text(
+                  'No emergency contacts found. Add contacts from Profile to use SOS.',
+                  style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                ),
+              )
+            else
+              ...contacts.map((contact) {
+                final selected = _selectedPhones.contains(contact.phone);
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: HealthCard(
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 48, height: 48,
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.08),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              contact.name.substring(0, 1),
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.primary,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                contact.name,
+                                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+                              ),
+                              Text(
+                                '${contact.relation} · ${contact.phone}',
+                                style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Checkbox(
+                          value: selected,
+                          activeColor: AppTheme.primary,
+                          onChanged: (v) {
+                            setState(() {
+                              if (v == true) {
+                                _selectedPhones.add(contact.phone);
+                              } else {
+                                _selectedPhones.remove(contact.phone);
+                              }
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }),
 
             const SizedBox(height: 16),
 
@@ -195,15 +239,25 @@ class _EmergencyScreenState extends State<EmergencyScreen>
   }
 
   void _sendEmergencyAlert() {
-    final selected = _emergencyContacts.where((c) => c['selected'] == true).toList();
+    final user = context.read<AppState>().currentUser;
+    final contacts = user?.emergencyContacts ?? [];
+    final selected = contacts.where((c) => _selectedPhones.contains(c.phone)).toList();
     if (selected.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select at least one contact')));
       return;
     }
+
+    for (final contact in selected) {
+      NotificationService.showEmergencyNotification(
+        contactName: contact.name,
+        patientName: user?.name ?? 'Patient',
+      );
+    }
+
     setState(() => _alertSent = true);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('🚨 Alert sent to ${selected.map((c) => c['name']).join(", ")}'),
+      content: Text('🚨 Alert sent to ${selected.map((c) => c.name).join(", ")}'),
       backgroundColor: AppTheme.secondary, duration: const Duration(seconds: 4)));
   }
 }

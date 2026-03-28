@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
+import '../models/models.dart';
 import '../utils/app_theme.dart';
 import 'dashboard_screen.dart';
 import 'documents_screen.dart';
 import 'medicine_screen.dart';
 import 'ai_chat_screen.dart';
+import 'guardian_dashboard_screen.dart';
 import 'auth_screens.dart';
 
 class MainShell extends StatefulWidget {
@@ -16,18 +18,27 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
 
-  final List<Widget> _screens = const [
-    DashboardScreen(),
-    DocumentsScreen(),
-    MedicineScreen(),
-    AIChatScreen(),
-    _ProfileScreen(),
-  ];
-
   @override
   Widget build(BuildContext context) {
+    final isGuardian = context.watch<AppState>().isGuardian;
+    final screens = isGuardian
+        ? const [
+            GuardianDashboardScreen(),
+            DocumentsScreen(),
+            MedicineScreen(),
+            AIChatScreen(),
+            _ProfileScreen(),
+          ]
+        : const [
+            DashboardScreen(),
+            DocumentsScreen(),
+            MedicineScreen(),
+            AIChatScreen(),
+            _ProfileScreen(),
+          ];
+
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: _screens),
+      body: IndexedStack(index: _currentIndex, children: screens),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -39,7 +50,7 @@ class _MainShellState extends State<MainShell> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _NavItem(icon: Icons.home_rounded, label: 'Home', index: 0, current: _currentIndex, onTap: _setTab),
+                _NavItem(icon: Icons.home_rounded, label: isGuardian ? 'Guardian' : 'Home', index: 0, current: _currentIndex, onTap: _setTab),
                 _NavItem(icon: Icons.folder_rounded, label: 'Records', index: 1, current: _currentIndex, onTap: _setTab),
                 _NavItem(icon: Icons.medication_rounded, label: 'Medicines', index: 2, current: _currentIndex, onTap: _setTab),
                 _NavItem(icon: Icons.smart_toy_rounded, label: 'AI Chat', index: 3, current: _currentIndex, onTap: _setTab),
@@ -97,8 +108,8 @@ class _ProfileScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<AppState>().currentUser;
-    final state = context.read<AppState>();
+    final state = context.watch<AppState>();
+    final user = state.currentUser;
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -209,19 +220,49 @@ class _ProfileScreen extends StatelessWidget {
           ),
 
           // Emergency contacts
-          if (user?.emergencyContacts.isNotEmpty ?? false)
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
-                child: Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white, borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: AppTheme.divider)),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    const Text('Emergency Contacts', style: TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 12),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white, borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.divider)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Emergency Contacts', style: TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w700)),
+                      if (!state.isGuardian)
+                        TextButton.icon(
+                          onPressed: () => _showAddContactDialog(context),
+                          icon: const Icon(Icons.add_rounded, size: 18),
+                          label: const Text('Add'),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surface,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: AppTheme.divider),
+                          ),
+                          child: const Text('Patient-only', style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textSecondary,
+                          )),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (user?.emergencyContacts.isEmpty ?? true)
+                    const Text(
+                      'No contacts added yet. Add at least one contact for SOS.',
+                      style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    )
+                  else
                     ...user!.emergencyContacts.map((ec) => Padding(
                       padding: const EdgeInsets.only(bottom: 10),
                       child: Row(children: [
@@ -237,13 +278,399 @@ class _ProfileScreen extends StatelessWidget {
                           Text('${ec.relation} · ${ec.phone}',
                             style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
                         ])),
-                        const Icon(Icons.call_rounded, color: AppTheme.secondary, size: 22),
+                        if (!state.isGuardian)
+                          IconButton(
+                            onPressed: () => state.removeEmergencyContact(ec.phone),
+                            icon: const Icon(Icons.delete_outline_rounded, color: AppTheme.danger, size: 22),
+                          ),
                       ]),
                     )),
-                  ]),
+                ]),
+              ),
+            ),
+          ),
+
+          // Pairing
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 14, 20, 0),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white, borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.divider)),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  const Text('Family Pairing', style: TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 8),
+                  if (state.isPatient) ...[
+                    const Text(
+                      'Generate an invite code and ask your guardian to enter it in their app.',
+                      style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final code = await state.generatePairingCode();
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(code == null
+                                    ? 'Could not generate code. Please retry.'
+                                    : 'Invite code generated: $code'),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.qr_code_rounded, size: 18),
+                          label: const Text('Generate Invite Code'),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        onPressed: () => state.refreshPendingPairingRequests(),
+                        icon: const Icon(Icons.refresh_rounded),
+                        tooltip: 'Refresh requests',
+                      ),
+                    ]),
+                    if ((state.activePairingCode ?? '').isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.divider),
+                        ),
+                        child: Row(children: [
+                          const Text('Active Code: ', style: TextStyle(
+                            fontSize: 13, color: AppTheme.textSecondary)),
+                          Expanded(
+                            child: Text(
+                              state.activePairingCode!,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1,
+                              ),
+                            ),
+                          ),
+                        ]),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    if (state.pendingPairingRequests.isEmpty)
+                      const Text(
+                        'No pending guardian requests.',
+                        style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                      )
+                    else
+                      ...state.pendingPairingRequests.map((req) {
+                        final guardianName = (req['guardianName'] ?? 'Guardian').toString();
+                        final guardianEmail = (req['guardianEmail'] ?? '').toString();
+                        final requestId = (req['requestId'] ?? '').toString();
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppTheme.divider),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(guardianName, style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w700)),
+                                if (guardianEmail.isNotEmpty)
+                                  Text(guardianEmail, style: const TextStyle(
+                                    fontSize: 12, color: AppTheme.textSecondary)),
+                                const SizedBox(height: 8),
+                                Row(children: [
+                                  Expanded(
+                                    child: OutlinedButton(
+                                      onPressed: requestId.isEmpty ? null : () async {
+                                        final ok = await state.rejectPairingRequest(requestId);
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(ok
+                                              ? 'Request rejected.'
+                                              : 'Could not reject request.')),
+                                        );
+                                      },
+                                      child: const Text('Reject'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: ElevatedButton(
+                                      onPressed: requestId.isEmpty ? null : () async {
+                                        final ok = await state.approvePairingRequest(requestId);
+                                        if (!context.mounted) return;
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text(ok
+                                              ? 'Guardian approved and linked.'
+                                              : 'Could not approve request.')),
+                                        );
+                                      },
+                                      child: const Text('Approve'),
+                                    ),
+                                  ),
+                                ]),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                    const SizedBox(height: 10),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text('Linked guardians', style: TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w700)),
+                        TextButton.icon(
+                          onPressed: () => state.refreshLinkedGuardians(),
+                          icon: const Icon(Icons.refresh_rounded, size: 16),
+                          label: const Text('Refresh'),
+                        ),
+                      ],
+                    ),
+                    if (state.linkedGuardians.isEmpty)
+                      const Text(
+                        'No active guardians linked yet.',
+                        style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                      )
+                    else
+                      ...state.linkedGuardians.map((g) {
+                        final guardianId = (g['guardianId'] ?? '').toString();
+                        final guardianName = (g['guardianName'] ?? 'Guardian').toString();
+                        final guardianEmail = (g['guardianEmail'] ?? '').toString();
+                        final raw = g['permissions'];
+                        final permissions = raw is Map<String, dynamic>
+                            ? {
+                                'viewDocuments': raw['viewDocuments'] == true,
+                                'viewMedicines': raw['viewMedicines'] == true,
+                                'receiveEmergencyAlerts': raw['receiveEmergencyAlerts'] == true,
+                                'manageMedicines': raw['manageMedicines'] == true,
+                              }
+                            : {
+                                'viewDocuments': true,
+                                'viewMedicines': true,
+                                'receiveEmergencyAlerts': true,
+                                'manageMedicines': false,
+                              };
+
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 10),
+                          child: Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppTheme.divider),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(guardianName, style: const TextStyle(
+                                  fontSize: 14, fontWeight: FontWeight.w700)),
+                                if (guardianEmail.isNotEmpty)
+                                  Text(guardianEmail, style: const TextStyle(
+                                    fontSize: 12, color: AppTheme.textSecondary)),
+                                const SizedBox(height: 8),
+                                _PermissionToggleRow(
+                                  label: 'View Records',
+                                  value: permissions['viewDocuments'] == true,
+                                  onChanged: (v) => _updatePermission(
+                                    context,
+                                    guardianId,
+                                    permissions,
+                                    'viewDocuments',
+                                    v,
+                                  ),
+                                ),
+                                _PermissionToggleRow(
+                                  label: 'View Medicines',
+                                  value: permissions['viewMedicines'] == true,
+                                  onChanged: (v) => _updatePermission(
+                                    context,
+                                    guardianId,
+                                    permissions,
+                                    'viewMedicines',
+                                    v,
+                                  ),
+                                ),
+                                _PermissionToggleRow(
+                                  label: 'Manage Medicines',
+                                  value: permissions['manageMedicines'] == true,
+                                  onChanged: (v) => _updatePermission(
+                                    context,
+                                    guardianId,
+                                    permissions,
+                                    'manageMedicines',
+                                    v,
+                                  ),
+                                ),
+                                _PermissionToggleRow(
+                                  label: 'Emergency Alerts',
+                                  value: permissions['receiveEmergencyAlerts'] == true,
+                                  onChanged: (v) => _updatePermission(
+                                    context,
+                                    guardianId,
+                                    permissions,
+                                    'receiveEmergencyAlerts',
+                                    v,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    onPressed: guardianId.isEmpty
+                                        ? null
+                                        : () => _confirmUnlinkGuardian(
+                                              context,
+                                              guardianId,
+                                              guardianName,
+                                            ),
+                                    icon: const Icon(
+                                      Icons.link_off_rounded,
+                                      size: 16,
+                                      color: AppTheme.danger,
+                                    ),
+                                    label: const Text(
+                                      'Unlink Guardian',
+                                      style: TextStyle(
+                                        color: AppTheme.danger,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      side: const BorderSide(
+                                        color: AppTheme.danger,
+                                        width: 1.2,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      }),
+                  ] else ...[
+                    Text(
+                      state.linkedPatientProfile != null
+                          ? 'Linked to patient: ${state.linkedPatientProfile!.name}'
+                          : 'Not linked to any patient yet.',
+                      style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _showLinkPatientDialog(context),
+                        icon: const Icon(Icons.link_rounded, size: 18),
+                        label: Text(state.linkedPatientProfile == null
+                            ? 'Enter Invite Code'
+                            : 'Link Another Patient'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => state.refreshRoleContext(),
+                        icon: const Icon(Icons.refresh_rounded, size: 16),
+                        label: const Text('Refresh Link Status'),
+                      ),
+                    ),
+                    if (state.linkedPatientProfile != null)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: AppTheme.divider),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Your access', style: TextStyle(
+                              fontSize: 13, fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                _permChip('Records', state.guardianPermissions['viewDocuments'] == true),
+                                _permChip('Medicines', state.guardianPermissions['viewMedicines'] == true),
+                                _permChip('Manage meds', state.guardianPermissions['manageMedicines'] == true),
+                                _permChip('Alerts', state.guardianPermissions['receiveEmergencyAlerts'] == true),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ]),
+              ),
+            ),
+          ),
+
+          // Data controls
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.divider),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Data Controls',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _exportData(context),
+                        icon: const Icon(Icons.download_rounded),
+                        label: const Text('Export My Data'),
+                      ),
+                    ),
+                    if (state.isPatient) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _confirmDeleteHealthData(context),
+                          icon: const Icon(Icons.delete_forever_rounded, color: AppTheme.danger),
+                          label: const Text(
+                            'Delete My Health Data',
+                            style: TextStyle(color: AppTheme.danger),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(color: AppTheme.danger, width: 1.2),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
+          ),
 
           // Sign out
           SliverToBoxAdapter(
@@ -289,6 +716,270 @@ class _ProfileScreen extends StatelessWidget {
           fontSize: 14, fontWeight: FontWeight.w600),
           overflow: TextOverflow.ellipsis)),
       ]),
+    );
+  }
+
+  void _showAddContactDialog(BuildContext context) {
+    final nameCtrl = TextEditingController();
+    final relationCtrl = TextEditingController();
+    final phoneCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Add Emergency Contact'),
+        content: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 280),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(labelText: 'Name'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: relationCtrl,
+                  decoration: const InputDecoration(labelText: 'Relation'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: phoneCtrl,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(labelText: 'Phone'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = nameCtrl.text.trim();
+              final relation = relationCtrl.text.trim();
+              final phone = phoneCtrl.text.trim();
+              if (name.isEmpty || relation.isEmpty || phone.isEmpty) return;
+
+              await context.read<AppState>().addEmergencyContact(
+                EmergencyContact(name: name, relation: relation, phone: phone),
+              );
+
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showLinkPatientDialog(BuildContext context) {
+    final codeCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        title: const Text('Link Patient Account'),
+        content: TextField(
+          controller: codeCtrl,
+          keyboardType: TextInputType.number,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            labelText: 'Invite Code',
+            hintText: 'Enter 6-digit code',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final code = codeCtrl.text.trim();
+              if (code.isEmpty) return;
+
+              final error = await context.read<AppState>().requestPatientLink(code);
+              if (!context.mounted) return;
+              Navigator.pop(context);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(error ?? 'Pair request sent. Ask patient to approve it.'),
+                ),
+              );
+            },
+            child: const Text('Send Request'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _updatePermission(
+    BuildContext context,
+    String guardianId,
+    Map<String, bool> current,
+    String key,
+    bool value,
+  ) async {
+    if (guardianId.isEmpty) return;
+    final next = Map<String, bool>.from(current)..[key] = value;
+    final ok = await context.read<AppState>().updateGuardianPermissions(
+      guardianId: guardianId,
+      permissions: next,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? 'Permissions updated.' : 'Could not update permissions.')),
+    );
+  }
+
+  Future<void> _confirmUnlinkGuardian(
+    BuildContext context,
+    String guardianId,
+    String guardianName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Unlink Guardian?'),
+        content: Text('Remove $guardianName from your linked guardians?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+            child: const Text('Unlink', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+    final ok = await context.read<AppState>().unlinkGuardian(guardianId);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(ok ? 'Guardian unlinked successfully.' : 'Could not unlink guardian.')),
+    );
+  }
+
+  Future<void> _exportData(BuildContext context) async {
+    final filePath = await context.read<AppState>().exportDataToJsonFile();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(filePath == null
+            ? 'Could not export data right now.'
+            : 'Data exported successfully. File path: $filePath'),
+      ),
+    );
+  }
+
+  Future<void> _confirmDeleteHealthData(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Health Data?'),
+        content: const Text(
+          'This will permanently remove your records, medicines, and emergency contacts. This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !context.mounted) return;
+    final ok = await context.read<AppState>().deleteMyHealthData();
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(ok ? 'Your health data has been deleted.' : 'Could not delete data right now.'),
+      ),
+    );
+  }
+
+  Widget _permChip(String label, bool enabled) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: enabled
+            ? AppTheme.secondary.withValues(alpha: 0.12)
+            : AppTheme.textHint.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(
+          color: enabled
+              ? AppTheme.secondary.withValues(alpha: 0.3)
+              : AppTheme.textHint.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: enabled ? AppTheme.secondary : AppTheme.textSecondary,
+        ),
+      ),
+    );
+  }
+}
+
+class _PermissionToggleRow extends StatelessWidget {
+  final String label;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  const _PermissionToggleRow({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textSecondary,
+              ),
+            ),
+          ),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeThumbColor: AppTheme.secondary,
+            activeTrackColor: AppTheme.secondary.withValues(alpha: 0.35),
+          ),
+        ],
+      ),
     );
   }
 }

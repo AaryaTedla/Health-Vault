@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 import '../services/app_state.dart';
+import '../services/medicine_autofill_service.dart';
+import '../services/risk_flag_service.dart';
 import '../models/models.dart';
 import '../utils/app_theme.dart';
 
@@ -24,10 +28,19 @@ class _MedicineScreenState extends State<MedicineScreen> {
   @override
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
-    final meds = appState.medicines;
+    final canView = appState.canViewMedicines;
+    final canEdit = appState.canManageMedicines;
+    final meds = canView ? appState.medicines : <MedicineReminder>[];
     final active = meds.where((m) => m.isActive).toList();
     final takenToday = active.where(_isTakenToday).length;
     final adherence = active.isEmpty ? 0.0 : takenToday / active.length;
+    final missedCount = canView ? appState.missedDoseCountNow() : 0;
+    final riskFlags = canView
+        ? RiskFlagService.medicineRiskFlags(
+            medicines: active,
+            missedDoseCount: missedCount,
+          )
+        : const <String>[];
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -59,14 +72,19 @@ class _MedicineScreenState extends State<MedicineScreen> {
                             color: Colors.white70, fontSize: 13)),
                       ])),
                     GestureDetector(
-                      onTap: () => _showAddMedicine(context),
+                      onTap: canEdit ? () => _showAddMedicine(context) : null,
                       child: Container(
                         width: 42, height: 42,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
+                          color: canEdit
+                              ? Colors.white.withValues(alpha: 0.2)
+                              : Colors.white.withValues(alpha: 0.1),
                           shape: BoxShape.circle),
-                        child: const Icon(Icons.add_rounded,
-                          color: Colors.white, size: 26)),
+                        child: Icon(
+                          Icons.add_rounded,
+                          color: canEdit ? Colors.white : Colors.white54,
+                          size: 26,
+                        )),
                     ),
                   ]),
                 ),
@@ -111,6 +129,87 @@ class _MedicineScreenState extends State<MedicineScreen> {
             ),
           ),
 
+          if (missedCount > 0)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.warning.withValues(alpha: 0.35)),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.warning_rounded, color: AppTheme.warning),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          '$missedCount ${missedCount == 1 ? 'dose is' : 'doses are'} overdue today.',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+          if (riskFlags.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppTheme.danger.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: AppTheme.danger.withValues(alpha: 0.25)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Risk Flags',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.danger,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ...riskFlags.map((flag) => Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.priority_high_rounded,
+                                    color: AppTheme.danger, size: 16),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: Text(
+                                    flag,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
@@ -127,14 +226,20 @@ class _MedicineScreenState extends State<MedicineScreen> {
                     Icon(Icons.medication_outlined,
                       size: 64, color: AppTheme.textHint),
                     const SizedBox(height: 16),
-                    const Text('No medicines added yet',
-                      style: TextStyle(fontSize: 16,
+                    Text(
+                      canView ? 'No medicines added yet' : 'Access restricted',
+                      style: const TextStyle(fontSize: 16,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.textSecondary)),
+                        color: AppTheme.textSecondary),
+                    ),
                     const SizedBox(height: 8),
-                    const Text('Tap Add Medicine to get started',
-                      style: TextStyle(fontSize: 14,
-                        color: AppTheme.textHint)),
+                    Text(
+                      canView
+                          ? (canEdit ? 'Tap Add Medicine to get started' : 'Patient medicines will appear here')
+                          : 'Patient has not granted medicine access yet.',
+                      style: const TextStyle(fontSize: 14,
+                        color: AppTheme.textHint),
+                    ),
                   ]),
                 ),
               )
@@ -146,13 +251,17 @@ class _MedicineScreenState extends State<MedicineScreen> {
                     return _MedicineCard(
                       medicine: med,
                       index: i,
+                      canEdit: canEdit,
                       isTakenToday: _isTakenToday(med),
-                      onToggleTaken: () => context.read<AppState>().setMedicineTakenToday(
-                            med.id,
-                            !_isTakenToday(med),
-                          ),
-                      onDelete: () => context.read<AppState>()
-                        .deleteMedicine(med.id),
+                      onToggleTaken: canEdit
+                          ? () => context.read<AppState>().setMedicineTakenToday(
+                                med.id,
+                                !_isTakenToday(med),
+                              )
+                          : () {},
+                      onDelete: canEdit
+                          ? () => context.read<AppState>().deleteMedicine(med.id)
+                          : () {},
                     );
                   },
                   childCount: active.length,
@@ -162,13 +271,15 @@ class _MedicineScreenState extends State<MedicineScreen> {
           const SliverToBoxAdapter(child: SizedBox(height: 100)),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddMedicine(context),
-        backgroundColor: AppTheme.primary,
-        icon: const Icon(Icons.add_rounded, color: Colors.white),
-        label: const Text('Add Medicine',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-      ),
+      floatingActionButton: canEdit
+          ? FloatingActionButton.extended(
+              onPressed: () => _showAddMedicine(context),
+              backgroundColor: AppTheme.primary,
+              icon: const Icon(Icons.add_rounded, color: Colors.white),
+              label: const Text('Add Medicine',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+            )
+          : null,
     );
   }
 
@@ -187,11 +298,13 @@ class _MedicineScreenState extends State<MedicineScreen> {
 class _MedicineCard extends StatelessWidget {
   final MedicineReminder medicine;
   final int index;
+  final bool canEdit;
   final bool isTakenToday;
   final VoidCallback onToggleTaken;
   final VoidCallback onDelete;
 
   const _MedicineCard({required this.medicine, required this.index,
+    required this.canEdit,
     required this.isTakenToday, required this.onToggleTaken,
     required this.onDelete});
 
@@ -227,17 +340,18 @@ class _MedicineCard extends StatelessWidget {
                 Text('${medicine.frequency} · ${medicine.duration}',
                   style: const TextStyle(fontSize: 12, color: AppTheme.textHint)),
               ])),
-            PopupMenuButton(
-              icon: const Icon(Icons.more_vert_rounded, color: AppTheme.textHint),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14)),
-              itemBuilder: (_) => [
-                const PopupMenuItem(value: 'delete',
-                  child: Text('Delete',
-                    style: TextStyle(color: AppTheme.danger))),
-              ],
-              onSelected: (v) { if (v == 'delete') onDelete(); },
-            ),
+            if (canEdit)
+              PopupMenuButton(
+                icon: const Icon(Icons.more_vert_rounded, color: AppTheme.textHint),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'delete',
+                    child: Text('Delete',
+                      style: TextStyle(color: AppTheme.danger))),
+                ],
+                onSelected: (v) { if (v == 'delete') onDelete(); },
+              ),
           ]),
           const SizedBox(height: 14),
           const Text('Reminder times:', style: TextStyle(
@@ -262,25 +376,26 @@ class _MedicineCard extends StatelessWidget {
             )).toList(),
           ),
           const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: onToggleTaken,
-              icon: Icon(
-                isTakenToday ? Icons.undo_rounded : Icons.check_circle_rounded,
-                color: Colors.white,
-                size: 18,
-              ),
-              label: Text(
-                isTakenToday ? 'Marked Taken Today (Undo)' : 'Mark as Taken Today',
-                style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: isTakenToday ? AppTheme.secondary : AppTheme.primary,
-                minimumSize: const Size(0, 40),
+          if (canEdit)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: onToggleTaken,
+                icon: Icon(
+                  isTakenToday ? Icons.undo_rounded : Icons.check_circle_rounded,
+                  color: Colors.white,
+                  size: 18,
+                ),
+                label: Text(
+                  isTakenToday ? 'Marked Taken Today (Undo)' : 'Mark as Taken Today',
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isTakenToday ? AppTheme.secondary : AppTheme.primary,
+                  minimumSize: const Size(0, 40),
+                ),
               ),
             ),
-          ),
           if (medicine.notes != null && medicine.notes!.isNotEmpty) ...[
             const SizedBox(height: 8),
             Text('Note: ${medicine.notes}', style: const TextStyle(
@@ -305,31 +420,41 @@ class _AddMedicineSheetState extends State<_AddMedicineSheet> {
   final _dosageCtrl = TextEditingController();
   final _durationCtrl = TextEditingController(text: '30 days');
   final _notesCtrl = TextEditingController();
+  Timer? _suggestionDebounce;
   String _frequency = 'Once daily';
   List<TimeOfDay> _selectedTimes = [const TimeOfDay(hour: 8, minute: 0)];
-  List<String> _suggestions = [];
-  bool _showSuggestions = false;
+  List<MedicineTemplate> _nameSuggestions = const [];
 
   final List<String> _frequencies = [
     'Once daily', 'Twice daily', 'Three times daily',
     'Every 6 hours', 'Every 8 hours', 'Weekly', 'As needed'
   ];
 
-  final List<String> _commonMedicines = [
-    'Amlodipine', 'Atorvastatin', 'Metformin', 'Lisinopril',
-    'Metoprolol', 'Omeprazole', 'Aspirin', 'Losartan',
-    'Simvastatin', 'Ramipril', 'Glibenclamide', 'Pantoprazole',
-    'Telmisartan', 'Rosuvastatin', 'Clopidogrel', 'Atenolol',
-    'Furosemide', 'Spironolactone', 'Levothyroxine', 'Vitamin D3',
-    'Calcium', 'Iron', 'Folic Acid', 'Paracetamol', 'Ibuprofen',
-    'Cetirizine', 'Salbutamol', 'Digoxin', 'Warfarin', 'B12',
-  ];
-
   @override
   void dispose() {
+    _suggestionDebounce?.cancel();
     _nameCtrl.dispose(); _dosageCtrl.dispose();
     _durationCtrl.dispose(); _notesCtrl.dispose();
     super.dispose();
+  }
+
+  void _scheduleSuggestionSearch(String value) {
+    _suggestionDebounce?.cancel();
+    final trimmed = value.trim();
+
+    if (trimmed.length < 2) {
+      if (_nameSuggestions.isNotEmpty) {
+        setState(() => _nameSuggestions = const []);
+      }
+      return;
+    }
+
+    _suggestionDebounce = Timer(const Duration(milliseconds: 140), () {
+      if (!mounted) return;
+      if (_nameCtrl.text.trim() != trimmed) return;
+      final next = MedicineAutofillService.suggestTemplates(trimmed);
+      setState(() => _nameSuggestions = next);
+    });
   }
 
   String _formatTime(TimeOfDay t) {
@@ -358,6 +483,14 @@ class _AddMedicineSheetState extends State<_AddMedicineSheet> {
       } else {
         _selectedTimes = [const TimeOfDay(hour: 8, minute: 0)];
       }
+    });
+  }
+
+  void _applyTemplate(MedicineTemplate template) {
+    setState(() {
+      _nameCtrl.text = template.name;
+      _dosageCtrl.text = template.defaultDosage;
+      _nameSuggestions = const [];
     });
   }
 
@@ -404,6 +537,7 @@ class _AddMedicineSheetState extends State<_AddMedicineSheet> {
             TextField(
               controller: _nameCtrl,
               textInputAction: TextInputAction.next,
+              onChanged: _scheduleSuggestionSearch,
               style: const TextStyle(fontSize: 16),
               decoration: InputDecoration(
                 labelText: 'Medicine name *',
@@ -421,45 +555,74 @@ class _AddMedicineSheetState extends State<_AddMedicineSheet> {
                   borderRadius: BorderRadius.circular(14),
                   borderSide: const BorderSide(
                     color: AppTheme.primary, width: 2))),
-              onChanged: (v) {
-                if (v.length >= 2) {
-                  setState(() {
-                    _suggestions = _commonMedicines
-                      .where((m) => m.toLowerCase()
-                        .startsWith(v.toLowerCase()))
-                      .take(5).toList();
-                    _showSuggestions = _suggestions.isNotEmpty;
-                  });
-                } else {
-                  setState(() => _showSuggestions = false);
-                }
-              },
             ),
 
-            if (_showSuggestions)
+            if (_nameSuggestions.isNotEmpty) ...[
+              const SizedBox(height: 10),
               Container(
-                margin: const EdgeInsets.only(top: 4),
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
-                  boxShadow: [BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 12, offset: const Offset(0, 4))]),
+                  color: AppTheme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.divider),
+                ),
                 child: Column(
-                  children: _suggestions.map((s) => ListTile(
-                    dense: true,
-                    leading: const Icon(Icons.medication_rounded,
-                      color: AppTheme.primary, size: 20),
-                    title: Text(s, style: const TextStyle(
-                      fontSize: 15, fontWeight: FontWeight.w500)),
-                    onTap: () {
-                      _nameCtrl.text = s;
-                      setState(() => _showSuggestions = false);
-                    },
-                  )).toList(),
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Quick autofill suggestions',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    ..._nameSuggestions.map((template) => InkWell(
+                          onTap: () => _applyTemplate(template),
+                          borderRadius: BorderRadius.circular(10),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 8),
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.auto_awesome_rounded,
+                                  size: 16,
+                                  color: AppTheme.primary,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        template.name,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                      Text(
+                                        '${template.defaultDosage} • ${template.defaultFrequency}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppTheme.textSecondary,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )),
+                  ],
                 ),
               ),
+            ],
 
             const SizedBox(height: 14),
 
