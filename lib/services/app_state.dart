@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as path;
@@ -11,6 +13,7 @@ import 'notification_service.dart';
 
 class AppState extends ChangeNotifier {
   static const String _currentUidKey = 'current_uid';
+  static const String _crisisModeKey = 'crisis_mode_enabled';
 
   AppUser? _currentUser;
   bool _isLoading = false;
@@ -31,6 +34,20 @@ class AppState extends ChangeNotifier {
   };
   List<Map<String, dynamic>> _linkedGuardians = [];
 
+  bool _isLiveLocationSharing = false;
+  DateTime? _liveLocationExpiresAt;
+  Map<String, dynamic>? _liveLocationSnapshot;
+  Timer? _liveLocationUpdateTimer;
+  Timer? _liveLocationExpiryTimer;
+  Timer? _guardianLiveLocationPollTimer;
+  Timer? _guardianLinkSyncTimer;
+  bool _isPushingLiveLocation = false;
+  String? _liveLocationStatusNote;
+  DateTime? _lastGuardianNotifiedLiveExpiry;
+  bool _crisisModeEnabled = false;
+  List<Map<String, dynamic>> _guardianEmergencyResponses = [];
+  Map<String, String> _reliabilityStatus = const {};
+
   AppState() {
     _restoreSession();
   }
@@ -49,18 +66,31 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> get pendingPairingRequests => _pendingPairingRequests;
   String? get linkedPatientId => _linkedPatientId;
   AppUser? get linkedPatientProfile => _linkedPatientProfile;
-    Map<String, bool> get guardianPermissions => _guardianPermissions;
-    List<Map<String, dynamic>> get linkedGuardians => _linkedGuardians;
-    bool get canViewDocuments =>
+  Map<String, bool> get guardianPermissions => _guardianPermissions;
+  List<Map<String, dynamic>> get linkedGuardians => _linkedGuardians;
+  bool get canViewDocuments =>
       !isGuardian || (_guardianPermissions['viewDocuments'] == true);
-    bool get canViewMedicines =>
+  bool get canViewMedicines =>
       !isGuardian || (_guardianPermissions['viewMedicines'] == true);
-    bool get canManageMedicines =>
+  bool get canManageMedicines =>
       !isGuardian || (_guardianPermissions['manageMedicines'] == true);
+  bool get isLiveLocationSharing => _isLiveLocationSharing;
+  DateTime? get liveLocationExpiresAt => _liveLocationExpiresAt;
+  Map<String, dynamic>? get liveLocationSnapshot => _liveLocationSnapshot;
+  String? get liveLocationStatusNote => _liveLocationStatusNote;
+  bool get crisisModeEnabled => _crisisModeEnabled;
+  List<Map<String, dynamic>> get guardianEmergencyResponses => _guardianEmergencyResponses;
+  Map<String, String> get reliabilityStatus => _reliabilityStatus;
+
+  Duration? get liveLocationRemaining {
+    final expiresAt = _liveLocationExpiresAt;
+    if (!_isLiveLocationSharing || expiresAt == null) return null;
+    final d = expiresAt.difference(DateTime.now());
+    return d.isNegative ? Duration.zero : d;
+  }
 
   Future<bool> signIn(String email, String password) async {
     _setLoading(true);
-    await Future.delayed(const Duration(seconds: 1));
 
     if (!FirebaseService.isReady) {
       _error = 'Backend is not configured. Please complete Firebase setup.';
@@ -77,11 +107,8 @@ class AppState extends ChangeNotifier {
       _selectedLanguage = _currentUser?.language ?? 'English';
       await _saveCurrentUser();
       await _saveSessionUid();
-      await _syncRoleContext();
-      await _loadDocuments();
-      await _loadMedicines();
-      await _loadAppointments();
       _setLoading(false);
+      unawaited(_postAuthWarmup());
       return true;
     }
 
@@ -102,7 +129,6 @@ class AppState extends ChangeNotifier {
     List<String> conditions = const [],
   }) async {
     _setLoading(true);
-    await Future.delayed(const Duration(seconds: 1));
 
     if (!FirebaseService.isReady) {
       _error = 'Backend is not configured. Please complete Firebase setup.';
@@ -125,11 +151,8 @@ class AppState extends ChangeNotifier {
       _selectedLanguage = _currentUser?.language ?? 'English';
       await _saveCurrentUser();
       await _saveSessionUid();
-      await _syncRoleContext();
-      await _loadDocuments();
-      await _loadMedicines();
-      await _loadAppointments();
       _setLoading(false);
+      unawaited(_postAuthWarmup());
       return true;
     }
 
@@ -140,12 +163,21 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
-    for (final med in _medicines) {
-      await _cancelMedicineReminders(med);
-    }
-    await FirebaseService.signOut();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_currentUidKey);
+    final userBeforeSignOut = _currentUser;
+    final medsBeforeSignOut = List<MedicineReminder>.from(_medicines);
+    final shouldStopLiveLocation = _isLiveLocationSharing &&
+        userBeforeSignOut != null &&
+        userBeforeSignOut.isPatient;
+
+    _liveLocationUpdateTimer?.cancel();
+    _liveLocationUpdateTimer = null;
+    _liveLocationExpiryTimer?.cancel();
+    _liveLocationExpiryTimer = null;
+    _guardianLiveLocationPollTimer?.cancel();
+    _guardianLiveLocationPollTimer = null;
+    _guardianLinkSyncTimer?.cancel();
+    _guardianLinkSyncTimer = null;
+
     _currentUser = null;
     _documents = [];
     _medicines = [];
@@ -155,6 +187,11 @@ class AppState extends ChangeNotifier {
     _linkedPatientId = null;
     _linkedPatientProfile = null;
     _linkedGuardians = [];
+    _liveLocationSnapshot = null;
+    _liveLocationExpiresAt = null;
+    _isLiveLocationSharing = false;
+    _guardianEmergencyResponses = [];
+    _reliabilityStatus = const {};
     _guardianPermissions = {
       'viewDocuments': true,
       'viewMedicines': true,
@@ -162,6 +199,29 @@ class AppState extends ChangeNotifier {
       'manageMedicines': false,
     };
     notifyListeners();
+
+    if (shouldStopLiveLocation) {
+      unawaited(FirebaseService.stopLiveLocation(patientId: userBeforeSignOut.uid));
+    }
+    for (final med in medsBeforeSignOut) {
+      unawaited(_cancelMedicineReminders(med));
+    }
+
+    await FirebaseService.signOut();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_currentUidKey);
+  }
+
+  Future<void> _postAuthWarmup() async {
+    try {
+      await _syncRoleContext();
+      await _loadDocuments();
+      await _loadMedicines();
+      await _loadAppointments();
+      await refreshReliabilityStatus();
+    } catch (e) {
+      print('Post-auth warmup failed: $e');
+    }
   }
 
   String _effectiveDataOwnerUid() {
@@ -486,6 +546,73 @@ class AppState extends ChangeNotifier {
 
   // ─── Utils ───────────────────────────────────────────────────────
 
+  Future<void> setCrisisModeEnabled(bool enabled) async {
+    _crisisModeEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_crisisModeKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> submitGuardianEmergencyResponse(
+    String response, {
+    int? etaMinutes,
+  }) async {
+    if (!isGuardian) return;
+    final patientId = _linkedPatientId;
+    if (patientId == null || patientId.isEmpty) return;
+
+    final ok = await FirebaseService.upsertGuardianEmergencyResponse(
+      patientId: patientId,
+      response: response,
+      etaMinutes: etaMinutes,
+    );
+    if (!ok) return;
+
+    await refreshGuardianEmergencyResponses();
+    await AuditService.logEvent(
+      ownerUserId: patientId,
+      event: 'guardian_emergency_response',
+      metadata: {
+        'response': response,
+        if (etaMinutes != null) 'etaMinutes': etaMinutes,
+      },
+    );
+  }
+
+  Future<void> refreshGuardianEmergencyResponses() async {
+    final patientId = isGuardian ? _linkedPatientId : _currentUser?.uid;
+    if (patientId == null || patientId.isEmpty) {
+      _guardianEmergencyResponses = [];
+      notifyListeners();
+      return;
+    }
+
+    _guardianEmergencyResponses =
+        await FirebaseService.loadGuardianEmergencyResponses(patientId);
+    notifyListeners();
+  }
+
+  Future<void> refreshReliabilityStatus() async {
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    final role = isGuardian ? 'Guardian' : 'Patient';
+    final linked = isGuardian
+        ? ((_linkedPatientId != null && _linkedPatientId!.isNotEmpty) ? 'Linked' : 'Not linked')
+        : 'Self';
+    final liveStatus = _liveLocationSnapshot == null
+        ? 'No data'
+        : (_liveLocationSnapshot?['isSharing'] == true ? 'Live sharing active' : 'Idle');
+
+    _reliabilityStatus = {
+      'Backend': FirebaseService.isReady ? 'Connected' : 'Not configured',
+      'Role': role,
+      'Link': linked,
+      'Location Service': serviceEnabled ? 'Enabled' : 'Disabled',
+      'Live Snapshot': liveStatus,
+      'Last Sync': DateTime.now().toIso8601String(),
+    };
+    notifyListeners();
+  }
+
   void setLanguage(String language) {
     _selectedLanguage = language;
     if (_currentUser != null) {
@@ -751,6 +878,219 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<String?> startEmergencyLiveLocationSharing({
+    Duration duration = const Duration(minutes: 30),
+  }) async {
+    final user = _currentUser;
+    if (user == null || !user.isPatient) {
+      return 'Only patient accounts can start live location sharing.';
+    }
+
+    if (_isLiveLocationSharing) {
+      return null;
+    }
+
+    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      _liveLocationStatusNote = 'Location service is disabled. Please turn on GPS.';
+      notifyListeners();
+      return 'Location service is disabled. Please turn on GPS.';
+    }
+
+    var permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+
+    if (permission == LocationPermission.denied) {
+      _liveLocationStatusNote = 'Location permission denied.';
+      notifyListeners();
+      return 'Location permission denied.';
+    }
+    if (permission == LocationPermission.deniedForever) {
+      _liveLocationStatusNote = 'Location permission permanently denied. Enable it from app settings.';
+      notifyListeners();
+      return 'Location permission permanently denied. Enable it from app settings.';
+    }
+
+    await stopEmergencyLiveLocationSharing();
+
+    _isLiveLocationSharing = true;
+    _liveLocationExpiresAt = DateTime.now().add(duration);
+    notifyListeners();
+
+    final firstError = await _captureAndPushLiveLocation();
+    if (firstError != null) {
+      _liveLocationStatusNote = firstError;
+      await stopEmergencyLiveLocationSharing();
+      return firstError;
+    }
+
+    _liveLocationUpdateTimer =
+        Timer.periodic(const Duration(seconds: 25), (timer) async {
+      if (!_isLiveLocationSharing) {
+        timer.cancel();
+        return;
+      }
+      final expiresAt = _liveLocationExpiresAt;
+      if (expiresAt == null || DateTime.now().isAfter(expiresAt)) {
+        await stopEmergencyLiveLocationSharing(expired: true);
+        return;
+      }
+      await _captureAndPushLiveLocation();
+    });
+
+    _liveLocationExpiryTimer = Timer(duration, () async {
+      await stopEmergencyLiveLocationSharing(expired: true);
+    });
+
+    await AuditService.logEvent(
+      ownerUserId: user.uid,
+      event: 'live_location_started',
+      metadata: {'durationMinutes': duration.inMinutes},
+    );
+    _liveLocationStatusNote = 'Live location sharing is active.';
+    notifyListeners();
+
+    return null;
+  }
+
+  Future<void> stopEmergencyLiveLocationSharing({bool expired = false}) async {
+    _liveLocationUpdateTimer?.cancel();
+    _liveLocationUpdateTimer = null;
+    _liveLocationExpiryTimer?.cancel();
+    _liveLocationExpiryTimer = null;
+
+    final user = _currentUser;
+    final wasSharing = _isLiveLocationSharing;
+    _isLiveLocationSharing = false;
+    _liveLocationExpiresAt = null;
+    _liveLocationStatusNote = expired
+      ? 'Live location auto-stopped after timeout.'
+      : 'Live location sharing stopped.';
+    notifyListeners();
+
+    if (user != null && user.isPatient) {
+      await FirebaseService.stopLiveLocation(patientId: user.uid);
+      if (wasSharing) {
+        await AuditService.logEvent(
+          ownerUserId: user.uid,
+          event: expired ? 'live_location_auto_stopped' : 'live_location_stopped',
+        );
+      }
+    }
+  }
+
+  Future<void> refreshLiveLocationSnapshot() async {
+    final targetPatientId = isGuardian
+        ? (_linkedPatientId ?? '')
+        : (_currentUser?.uid ?? '');
+    if (targetPatientId.isEmpty) {
+      _liveLocationSnapshot = null;
+      notifyListeners();
+      return;
+    }
+
+    final data = await FirebaseService.loadLiveLocation(patientId: targetPatientId);
+    _liveLocationSnapshot = data;
+    _guardianEmergencyResponses =
+        await FirebaseService.loadGuardianEmergencyResponses(targetPatientId);
+
+    final readError = (data?['readError'] ?? '').toString();
+    if (readError.isNotEmpty) {
+      _liveLocationStatusNote = 'Live location read failed: $readError';
+    } else if ((data?['isSharing'] == true) && data?['latitude'] != null && data?['longitude'] != null) {
+      _liveLocationStatusNote = 'Live location updated.';
+    }
+
+    if (!isGuardian) {
+      _isLiveLocationSharing = data?['isSharing'] == true;
+      _liveLocationExpiresAt = data?['expiresAt'] is DateTime
+          ? data!['expiresAt'] as DateTime
+          : null;
+    } else {
+      final isSharing = data?['isSharing'] == true;
+      final expiresAt = data?['expiresAt'] is DateTime
+          ? data!['expiresAt'] as DateTime
+          : null;
+      final shouldNotify = isSharing &&
+          expiresAt != null &&
+          (_lastGuardianNotifiedLiveExpiry == null ||
+              !_lastGuardianNotifiedLiveExpiry!.isAtSameMomentAs(expiresAt));
+      if (shouldNotify) {
+        _lastGuardianNotifiedLiveExpiry = expiresAt;
+        unawaited(NotificationService.showGuardianUpdate(
+          patientName: _linkedPatientProfile?.name ?? 'Patient',
+          update: 'Emergency live location sharing has started.',
+        ));
+      }
+    }
+
+    notifyListeners();
+  }
+
+  Future<String?> _captureAndPushLiveLocation() async {
+    if (_isPushingLiveLocation) return null;
+
+    final user = _currentUser;
+    final expiresAt = _liveLocationExpiresAt;
+    if (user == null || !user.isPatient || expiresAt == null) {
+      return 'Live location is not active.';
+    }
+
+    _isPushingLiveLocation = true;
+    try {
+      Position? pos;
+      try {
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        ).timeout(const Duration(seconds: 12));
+      } on TimeoutException {
+        pos = await Geolocator.getLastKnownPosition();
+      }
+
+      pos ??= await Geolocator.getLastKnownPosition();
+      if (pos == null) {
+        return 'Could not get GPS fix yet. Try again near a window or outdoors.';
+      }
+
+      await FirebaseService.upsertLiveLocation(
+        patientId: user.uid,
+        latitude: pos.latitude,
+        longitude: pos.longitude,
+        expiresAt: expiresAt,
+        isSharing: true,
+      );
+
+      _liveLocationSnapshot = {
+        'patientId': user.uid,
+        'latitude': pos.latitude,
+        'longitude': pos.longitude,
+        'isSharing': true,
+        'expiresAt': expiresAt,
+        'updatedAt': DateTime.now(),
+      };
+      _liveLocationStatusNote = 'Live location pushed successfully.';
+      notifyListeners();
+      return null;
+    } catch (e) {
+      print('Error capturing live location: $e');
+      final errorText = e.toString();
+      if (errorText.contains('permission')) {
+        return 'Location permission missing. Please allow location for this app.';
+      }
+      if (errorText.contains('location services are disabled')) {
+        return 'Location services are disabled. Turn on device location.';
+      }
+      return 'Unable to capture current location.';
+    } finally {
+      _isPushingLiveLocation = false;
+    }
+  }
+
   void _setLoading(bool value) {
     _isLoading = value;
     notifyListeners();
@@ -845,6 +1185,7 @@ class AppState extends ChangeNotifier {
       }
 
       final prefs = await SharedPreferences.getInstance();
+      _crisisModeEnabled = prefs.getBool(_crisisModeKey) ?? false;
       final uid = prefs.getString(_currentUidKey);
       if (uid == null) return;
 
@@ -868,6 +1209,8 @@ class AppState extends ChangeNotifier {
     if (user == null) return;
 
     if (user.isPatient) {
+      _guardianLinkSyncTimer?.cancel();
+      _guardianLinkSyncTimer = null;
       _linkedPatientId = null;
       _linkedPatientProfile = null;
       _guardianPermissions = {
@@ -878,6 +1221,9 @@ class AppState extends ChangeNotifier {
       };
       await refreshPendingPairingRequests();
       await refreshLinkedGuardians();
+      await refreshLiveLocationSnapshot();
+      await refreshGuardianEmergencyResponses();
+      _configureGuardianLiveLocationPolling();
       return;
     }
 
@@ -900,6 +1246,7 @@ class AppState extends ChangeNotifier {
       _linkedPatientProfile = null;
       _documents = [];
       _medicines = [];
+      _liveLocationSnapshot = null;
       _guardianPermissions = {
         'viewDocuments': false,
         'viewMedicines': false,
@@ -907,6 +1254,58 @@ class AppState extends ChangeNotifier {
         'manageMedicines': false,
       };
     }
+
+    await refreshLiveLocationSnapshot();
+    await refreshGuardianEmergencyResponses();
+    _configureGuardianLiveLocationPolling();
+    _configureGuardianLinkSync();
+  }
+
+  void _configureGuardianLiveLocationPolling() {
+    _guardianLiveLocationPollTimer?.cancel();
+    _guardianLiveLocationPollTimer = null;
+
+    if (!isGuardian || _linkedPatientId == null || _linkedPatientId!.isEmpty) {
+      return;
+    }
+
+    _guardianLiveLocationPollTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) {
+        unawaited(refreshLiveLocationSnapshot());
+      },
+    );
+  }
+
+  void _configureGuardianLinkSync() {
+    _guardianLinkSyncTimer?.cancel();
+    _guardianLinkSyncTimer = null;
+
+    if (!isGuardian) return;
+
+    _guardianLinkSyncTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+      if (!isGuardian) {
+        _guardianLinkSyncTimer?.cancel();
+        _guardianLinkSyncTimer = null;
+        return;
+      }
+
+      final user = _currentUser;
+      if (user == null) return;
+
+      final linked = await FirebaseService.loadLinkedPatientIdForGuardian(user.uid);
+      if (linked != null && linked.isNotEmpty && linked != _linkedPatientId) {
+        await _syncRoleContext();
+        await _loadDocuments();
+        await _loadMedicines();
+        notifyListeners();
+      }
+
+      if (_linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
+        _guardianLinkSyncTimer?.cancel();
+        _guardianLinkSyncTimer = null;
+      }
+    });
   }
 
   Future<String?> generatePairingCode() async {
@@ -1070,6 +1469,18 @@ class AppState extends ChangeNotifier {
     await _syncRoleContext();
     await _loadDocuments();
     await _loadMedicines();
+    await refreshLiveLocationSnapshot();
+    await refreshGuardianEmergencyResponses();
+    await refreshReliabilityStatus();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _liveLocationUpdateTimer?.cancel();
+    _liveLocationExpiryTimer?.cancel();
+    _guardianLiveLocationPollTimer?.cancel();
+    _guardianLinkSyncTimer?.cancel();
+    super.dispose();
   }
 }

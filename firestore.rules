@@ -59,6 +59,18 @@ service cloud.firestore {
         allow create: if isOwner(userId) || hasActiveCareLink(userId);
         allow update, delete: if false;
       }
+
+      match /liveLocation/{docId} {
+        allow read: if isOwner(userId) ||
+          hasActiveCareLink(userId);
+        allow create, update, delete: if isOwner(userId);
+      }
+
+      match /guardianResponses/{guardianId} {
+        allow read: if isOwner(userId) || hasActiveCareLink(userId);
+        allow create, update: if isSignedIn() && request.auth.uid == guardianId && hasActiveCareLink(userId);
+        allow delete: if isOwner(userId);
+      }
     }
 
     // Patient creates short-lived invite codes to pair with guardian accounts.

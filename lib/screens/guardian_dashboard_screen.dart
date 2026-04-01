@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
 import '../utils/app_theme.dart';
@@ -21,6 +23,21 @@ class GuardianDashboardScreen extends StatelessWidget {
       return t.year == now.year && t.month == now.month && t.day == now.day;
     }).length;
     final pendingDoses = meds.length - takenToday;
+    final live = state.liveLocationSnapshot;
+    final isSharing = live?['isSharing'] == true;
+    final lat = (live?['latitude'] as num?)?.toDouble();
+    final lng = (live?['longitude'] as num?)?.toDouble();
+    final updatedAt = live?['updatedAt'] as DateTime?;
+    final canReceiveEmergency = state.guardianPermissions['receiveEmergencyAlerts'] == true;
+    final readError = (live?['readError'] ?? '').toString();
+    final hasCoordinates = lat != null && lng != null;
+    final freshness = _freshnessLabel(updatedAt);
+    final isFresh = updatedAt != null &&
+      DateTime.now().difference(updatedAt).inSeconds <= 45;
+    final myResponse = state.guardianEmergencyResponses.where(
+      (r) => (r['guardianId'] ?? '').toString() == (state.currentUser?.uid ?? ''),
+    );
+    final lastResponse = myResponse.isNotEmpty ? myResponse.first : null;
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
@@ -175,6 +192,217 @@ class GuardianDashboardScreen extends StatelessWidget {
             ),
           ),
 
+          SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SectionTitle(title: 'Live Location'),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: HealthCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              width: 34,
+                              height: 34,
+                              decoration: BoxDecoration(
+                                color: (isSharing ? AppTheme.secondary : AppTheme.textHint)
+                                    .withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                isSharing ? Icons.location_on_rounded : Icons.location_off_rounded,
+                                color: isSharing ? AppTheme.secondary : AppTheme.textHint,
+                                size: 18,
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                isSharing
+                                    ? 'Patient is sharing live location'
+                                    : 'Live location is not active',
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            IconButton(
+                              onPressed: () => state.refreshLiveLocationSnapshot(),
+                              icon: const Icon(Icons.refresh_rounded),
+                              tooltip: 'Refresh location',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        if (readError.isNotEmpty)
+                          Text(
+                            'Live location read failed ($readError). Check deployed Firestore rules and guardian permissions.',
+                            style: const TextStyle(fontSize: 13, color: AppTheme.warning),
+                          )
+                        else if (!canReceiveEmergency)
+                          const Text(
+                            'Live location is disabled for this guardian. Ask the patient to enable Emergency Alerts permission.',
+                            style: TextStyle(fontSize: 13, color: AppTheme.warning),
+                          )
+                        else if (lat != null && lng != null) ...[
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              _StatusChip(
+                                label: 'Sharing',
+                                value: isSharing ? 'ON' : 'OFF',
+                                ok: isSharing,
+                              ),
+                              _StatusChip(
+                                label: 'Coords',
+                                value: hasCoordinates ? 'OK' : 'Missing',
+                                ok: hasCoordinates,
+                              ),
+                              _StatusChip(
+                                label: 'Freshness',
+                                value: freshness,
+                                ok: isFresh,
+                              ),
+                              _StatusChip(
+                                label: 'Permission',
+                                value: canReceiveEmergency ? 'Granted' : 'Blocked',
+                                ok: canReceiveEmergency,
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          SizedBox(
+                            height: 180,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: GestureDetector(
+                                onTap: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => _LiveLocationMapScreen(
+                                      latitude: lat,
+                                      longitude: lng,
+                                      patientName: patient?.name ?? 'Patient',
+                                    ),
+                                  ),
+                                ),
+                                child: FlutterMap(
+                                  options: MapOptions(
+                                    initialCenter: LatLng(lat, lng),
+                                    initialZoom: 15,
+                                  ),
+                                  children: [
+                                    TileLayer(
+                                      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                      userAgentPackageName: 'com.teamtesla.healthvault',
+                                    ),
+                                    MarkerLayer(
+                                      markers: [
+                                        Marker(
+                                          point: LatLng(lat, lng),
+                                          width: 44,
+                                          height: 44,
+                                          child: const Icon(
+                                            Icons.location_pin,
+                                            color: AppTheme.danger,
+                                            size: 40,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => _LiveLocationMapScreen(
+                                    latitude: lat,
+                                    longitude: lng,
+                                    patientName: patient?.name ?? 'Patient',
+                                  ),
+                                ),
+                              ),
+                              icon: const Icon(Icons.open_in_full_rounded, size: 16),
+                              label: const Text('Open Full Map'),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Latitude: ${lat.toStringAsFixed(6)}',
+                            style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                          ),
+                          Text(
+                            'Longitude: ${lng.toStringAsFixed(6)}',
+                            style: const TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                          ),
+                        ] else
+                          const Text(
+                            'No coordinates available yet.',
+                            style: TextStyle(fontSize: 13, color: AppTheme.textSecondary),
+                          ),
+                        const SizedBox(height: 6),
+                        Text(
+                          updatedAt == null
+                              ? 'Last updated: -'
+                              : 'Last updated: ${updatedAt.day.toString().padLeft(2, '0')}/${updatedAt.month.toString().padLeft(2, '0')} ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}',
+                          style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+                        ),
+                        if (isSharing && canReceiveEmergency) ...[
+                          const SizedBox(height: 10),
+                          const Text(
+                            'Acknowledge Alert',
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton(
+                                onPressed: () => state.submitGuardianEmergencyResponse('Seen alert'),
+                                child: const Text('Seen'),
+                              ),
+                              ElevatedButton(
+                                onPressed: () => state.submitGuardianEmergencyResponse('On my way', etaMinutes: 15),
+                                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.secondary),
+                                child: const Text('On My Way', style: TextStyle(color: Colors.white)),
+                              ),
+                              OutlinedButton(
+                                onPressed: () => state.submitGuardianEmergencyResponse('Calling patient now'),
+                                child: const Text('Calling Now'),
+                              ),
+                            ],
+                          ),
+                          if (lastResponse != null) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              'Last response: ${(lastResponse['response'] ?? '-').toString()}',
+                              style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                            ),
+                          ],
+                        ],
+                      ],
+                    ),
+                  ).animate().fadeIn(delay: 250.ms),
+                ),
+              ],
+            ),
+          ),
+
           // ─── Recent alerts ────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Column(
@@ -244,6 +472,98 @@ class _GuardianStatCard extends StatelessWidget {
         Text(label, style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 11)),
       ]),
     ));
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final bool ok;
+  const _StatusChip({required this.label, required this.value, required this.ok});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = ok ? AppTheme.secondary : AppTheme.warning;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.3)),
+      ),
+      child: Text(
+        '$label: $value',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: color,
+        ),
+      ),
+    );
+  }
+}
+
+String _freshnessLabel(DateTime? updatedAt) {
+  if (updatedAt == null) return 'No data';
+  final age = DateTime.now().difference(updatedAt);
+  if (age.inSeconds < 10) return 'Live';
+  if (age.inMinutes < 1) return '${age.inSeconds}s old';
+  return '${age.inMinutes}m old';
+}
+
+class _LiveLocationMapScreen extends StatelessWidget {
+  final double latitude;
+  final double longitude;
+  final String patientName;
+
+  const _LiveLocationMapScreen({
+    required this.latitude,
+    required this.longitude,
+    required this.patientName,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final point = LatLng(latitude, longitude);
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('$patientName Live Location'),
+      ),
+      body: FlutterMap(
+        options: MapOptions(
+          initialCenter: point,
+          initialZoom: 16,
+        ),
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'com.teamtesla.healthvault',
+          ),
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: point,
+                width: 52,
+                height: 52,
+                child: const Icon(
+                  Icons.location_pin,
+                  color: AppTheme.danger,
+                  size: 46,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+      bottomNavigationBar: SafeArea(
+        minimum: const EdgeInsets.all(12),
+        child: Text(
+          'Latitude: ${latitude.toStringAsFixed(6)}   Longitude: ${longitude.toStringAsFixed(6)}',
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+        ),
+      ),
+    );
   }
 }
 

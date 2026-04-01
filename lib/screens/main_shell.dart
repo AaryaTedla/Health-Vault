@@ -641,6 +641,54 @@ class _ProfileScreen extends StatelessWidget {
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 10),
+                    SwitchListTile.adaptive(
+                      value: state.crisisModeEnabled,
+                      onChanged: (v) => state.setCrisisModeEnabled(v),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Crisis Mode'),
+                      subtitle: const Text(
+                        'High-contrast emergency UI with larger SOS controls.',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: AppTheme.surface,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: AppTheme.divider),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Demo Reliability Panel',
+                                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              TextButton(
+                                onPressed: () => state.refreshReliabilityStatus(),
+                                child: const Text('Refresh'),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 4),
+                          ...state.reliabilityStatus.entries.map((e) => Padding(
+                                padding: const EdgeInsets.only(bottom: 2),
+                                child: Text(
+                                  '${e.key}: ${e.value}',
+                                  style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                                ),
+                              )),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 10),
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(

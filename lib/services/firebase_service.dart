@@ -456,15 +456,34 @@ class FirebaseService {
     final current = FirebaseAuth.instance.currentUser;
     if (current == null || current.uid != guardianId) return null;
 
-    final snap = await FirebaseFirestore.instance
-      .collectionGroup('careLinks')
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collectionGroup('careLinks')
+          .where('guardianId', isEqualTo: guardianId)
+          .where('status', isEqualTo: 'active')
+          .limit(1)
+          .get();
+
+      if (snap.docs.isNotEmpty) {
+        return (snap.docs.first.data()['patientId'] ?? '').toString();
+      }
+    } catch (_) {
+      // Fall back to pairing requests lookup below.
+    }
+
+    // Fallback path helps when careLinks query is temporarily unavailable.
+    final approvedReqs = await FirebaseFirestore.instance
+        .collection('pairingRequests')
         .where('guardianId', isEqualTo: guardianId)
-        .where('status', isEqualTo: 'active')
+        .where('status', isEqualTo: 'approved')
         .limit(1)
         .get();
 
-    if (snap.docs.isEmpty) return null;
-    return (snap.docs.first.data()['patientId'] ?? '').toString();
+    if (approvedReqs.docs.isNotEmpty) {
+      return (approvedReqs.docs.first.data()['patientId'] ?? '').toString();
+    }
+
+    return null;
   }
 
   static Future<Map<String, dynamic>?> loadActiveCareLinkForGuardian(
@@ -504,6 +523,152 @@ class FirebaseService {
       return tb.compareTo(ta);
     });
     return items;
+  }
+
+  static Future<List<Map<String, dynamic>>> loadGuardianEmergencyResponses(
+      String patientId) async {
+    if (!_isReady) return const [];
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null) return const [];
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(patientId)
+          .collection('guardianResponses')
+          .get();
+
+      final items = snap.docs.map((d) {
+        final data = d.data();
+        return {
+          'guardianId': (data['guardianId'] ?? '').toString(),
+          'response': (data['response'] ?? '').toString(),
+          'etaMinutes': data['etaMinutes'] is int ? data['etaMinutes'] as int : null,
+          'updatedAt': (data['updatedAt'] as Timestamp?)?.toDate(),
+        };
+      }).toList();
+
+      items.sort((a, b) {
+        final ta = (a['updatedAt'] as DateTime?) ?? DateTime(1970);
+        final tb = (b['updatedAt'] as DateTime?) ?? DateTime(1970);
+        return tb.compareTo(ta);
+      });
+
+      return items;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<bool> upsertGuardianEmergencyResponse({
+    required String patientId,
+    required String response,
+    int? etaMinutes,
+  }) async {
+    if (!_isReady) return false;
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null) return false;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(patientId)
+          .collection('guardianResponses')
+          .doc(current.uid)
+          .set({
+        'guardianId': current.uid,
+        'response': response,
+        'etaMinutes': etaMinutes,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> upsertLiveLocation({
+    required String patientId,
+    required double latitude,
+    required double longitude,
+    required DateTime expiresAt,
+    bool isSharing = true,
+  }) async {
+    if (!_isReady) return;
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null || current.uid != patientId) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(patientId)
+        .collection('liveLocation')
+        .doc('current')
+        .set({
+      'patientId': patientId,
+      'latitude': latitude,
+      'longitude': longitude,
+      'isSharing': isSharing,
+      'expiresAt': Timestamp.fromDate(expiresAt.toUtc()),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  static Future<void> stopLiveLocation({
+    required String patientId,
+  }) async {
+    if (!_isReady) return;
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null || current.uid != patientId) return;
+
+    await FirebaseFirestore.instance
+        .collection('users')
+        .doc(patientId)
+        .collection('liveLocation')
+        .doc('current')
+        .set({
+      'patientId': patientId,
+      'isSharing': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  static Future<Map<String, dynamic>?> loadLiveLocation({
+    required String patientId,
+  }) async {
+    if (!_isReady) return null;
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null) return null;
+
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(patientId)
+          .collection('liveLocation')
+          .doc('current')
+          .get();
+      if (!snap.exists || snap.data() == null) return null;
+      final data = snap.data()!;
+      return {
+        'patientId': (data['patientId'] ?? '').toString(),
+        'latitude': (data['latitude'] as num?)?.toDouble(),
+        'longitude': (data['longitude'] as num?)?.toDouble(),
+        'isSharing': data['isSharing'] == true,
+        'expiresAt': (data['expiresAt'] as Timestamp?)?.toDate(),
+        'updatedAt': (data['updatedAt'] as Timestamp?)?.toDate(),
+      };
+    } on FirebaseException catch (e) {
+      return {
+        'isSharing': false,
+        'readError': e.code,
+        'readErrorMessage': e.message ?? 'Unable to read live location.',
+      };
+    } catch (_) {
+      return {
+        'isSharing': false,
+        'readError': 'unknown',
+        'readErrorMessage': 'Unable to read live location.',
+      };
+    }
   }
 
   static Future<bool> updateGuardianPermissions({

@@ -32,17 +32,30 @@ class _EmergencyScreenState extends State<EmergencyScreen>
 
   @override
   Widget build(BuildContext context) {
-    final user = context.watch<AppState>().currentUser;
+    final appState = context.watch<AppState>();
+    final user = appState.currentUser;
     final contacts = user?.emergencyContacts ?? [];
+    final isLiveSharing = appState.isLiveLocationSharing;
+    final remaining = appState.liveLocationRemaining;
+    final statusNote = appState.liveLocationStatusNote;
+    final crisisMode = appState.crisisModeEnabled;
+    final responses = appState.guardianEmergencyResponses;
+    final live = appState.liveLocationSnapshot;
+    final lat = (live?['latitude'] as num?)?.toDouble();
+    final lng = (live?['longitude'] as num?)?.toDouble();
+    final updatedAt = live?['updatedAt'] as DateTime?;
     if (_selectedPhones.isEmpty && contacts.isNotEmpty) {
       _selectedPhones.addAll(contacts.map((c) => c.phone));
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: crisisMode ? const Color(0xFF111111) : Colors.white,
       appBar: AppBar(
-        title: const Text('Emergency Alert', style: TextStyle(color: AppTheme.danger)),
-        backgroundColor: Colors.white,
+        title: Text(
+          crisisMode ? 'CRISIS MODE' : 'Emergency Alert',
+          style: TextStyle(color: crisisMode ? Colors.amber : AppTheme.danger),
+        ),
+        backgroundColor: crisisMode ? const Color(0xFF111111) : Colors.white,
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_rounded),
           onPressed: () => Navigator.pop(context)),
@@ -55,7 +68,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
             AnimatedBuilder(
               animation: _pulseController,
               builder: (_, __) => Container(
-                width: 200, height: 200,
+                width: crisisMode ? 240 : 200, height: crisisMode ? 240 : 200,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: AppTheme.danger.withValues(alpha: 0.05 + _pulseController.value * 0.08),
@@ -64,7 +77,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     width: 3 + _pulseController.value * 4),
                 ),
                 child: GestureDetector(
-                  onTap: _alertSent ? null : _sendEmergencyAlert,
+                  onTap: _alertSent ? null : () => _sendEmergencyAlert(),
                   child: Container(
                     margin: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -77,11 +90,16 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                     child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                       Icon(
                         _alertSent ? Icons.check_rounded : Icons.emergency_rounded,
-                        color: Colors.white, size: 48),
+                        color: Colors.white, size: crisisMode ? 60 : 48),
                       const SizedBox(height: 8),
                       Text(
                         _alertSent ? 'SENT!' : 'SOS',
-                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.w900)),
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: crisisMode ? 30 : 22,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
                     ]),
                   ),
                 ),
@@ -96,7 +114,133 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                 color: _alertSent ? AppTheme.secondary : AppTheme.textSecondary),
               textAlign: TextAlign.center),
 
-            const SizedBox(height: 28),
+            const SizedBox(height: 16),
+
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: isLiveSharing
+                    ? AppTheme.secondary.withValues(alpha: 0.10)
+                    : AppTheme.surface,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isLiveSharing
+                      ? AppTheme.secondary.withValues(alpha: 0.35)
+                      : AppTheme.divider,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        isLiveSharing
+                            ? Icons.location_on_rounded
+                            : Icons.location_off_rounded,
+                        color: isLiveSharing ? AppTheme.secondary : AppTheme.textHint,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        isLiveSharing
+                            ? 'Live location sharing is active'
+                            : 'Live location is not active',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: isLiveSharing
+                              ? AppTheme.secondary
+                              : AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (isLiveSharing && remaining != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Auto stops in ${_formatRemaining(remaining)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.textSecondary,
+                      ),
+                    ),
+                    if (lat != null && lng != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Current: ${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textSecondary,
+                        ),
+                      ),
+                    ],
+                    if (updatedAt != null)
+                      Text(
+                        'Updated: ${updatedAt.hour.toString().padLeft(2, '0')}:${updatedAt.minute.toString().padLeft(2, '0')}:${updatedAt.second.toString().padLeft(2, '0')}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textHint,
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => appState.stopEmergencyLiveLocationSharing(),
+                      icon: const Icon(Icons.stop_circle_outlined, size: 16),
+                      label: const Text('Stop Sharing'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.danger,
+                        side: const BorderSide(color: AppTheme.danger),
+                      ),
+                    ),
+                  ],
+                  if (statusNote != null && statusNote.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      statusNote,
+                      style: const TextStyle(fontSize: 12, color: AppTheme.textHint),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            if (responses.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.07),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Guardian Response',
+                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    ...responses.take(2).map((r) {
+                      final response = (r['response'] ?? '-').toString();
+                      final eta = r['etaMinutes'] as int?;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          eta == null ? '• $response' : '• $response (ETA $eta min)',
+                          style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+                        ),
+                      );
+                    }),
+                  ],
+                ),
+              ),
+            ],
+
+            const SizedBox(height: 16),
 
             // ─── Contact selection ────────────────────────────────────────
             const Align(alignment: Alignment.centerLeft,
@@ -215,7 +359,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                 label: 'Send Emergency Alert',
                 icon: Icons.emergency_rounded,
                 color: AppTheme.danger,
-                onTap: _sendEmergencyAlert,
+                onTap: () => _sendEmergencyAlert(),
               ),
 
             const SizedBox(height: 12),
@@ -238,8 +382,9 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     );
   }
 
-  void _sendEmergencyAlert() {
-    final user = context.read<AppState>().currentUser;
+  Future<void> _sendEmergencyAlert() async {
+    final appState = context.read<AppState>();
+    final user = appState.currentUser;
     final contacts = user?.emergencyContacts ?? [];
     final selected = contacts.where((c) => _selectedPhones.contains(c.phone)).toList();
     if (selected.isEmpty) {
@@ -255,10 +400,22 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       );
     }
 
+    final locationError = await appState.startEmergencyLiveLocationSharing();
+
     setState(() => _alertSent = true);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('🚨 Alert sent to ${selected.map((c) => c.name).join(", ")}'),
-      backgroundColor: AppTheme.secondary, duration: const Duration(seconds: 4)));
+      content: Text(locationError == null
+          ? '🚨 Alert sent and live location sharing started.'
+          : '🚨 Alert sent. Live location unavailable: $locationError'),
+      backgroundColor: locationError == null ? AppTheme.secondary : AppTheme.warning,
+      duration: const Duration(seconds: 4),
+    ));
+  }
+
+  String _formatRemaining(Duration d) {
+    final mins = d.inMinutes;
+    final secs = d.inSeconds % 60;
+    return '${mins.toString().padLeft(2, '0')}:${secs.toString().padLeft(2, '0')}';
   }
 }
 
