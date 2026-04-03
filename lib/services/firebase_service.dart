@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/models.dart';
@@ -15,13 +16,30 @@ class FirebaseService {
       _isReady ? FirebaseAuth.instance.currentUser?.uid : null;
   static String? _lastAuthError;
   static String? get lastAuthError => _lastAuthError;
+  static String? _lastServiceError;
+  static String? get lastServiceError => _lastServiceError;
+
+  static void _clearServiceError() {
+    _lastServiceError = null;
+  }
+
+  static void _setServiceError(String message, [Object? error]) {
+    _lastServiceError = message;
+    if (error != null) {
+      debugPrint('FirebaseService error: $message | $error');
+    } else {
+      debugPrint('FirebaseService error: $message');
+    }
+  }
 
   static Future<void> init() async {
+    _clearServiceError();
     try {
       await Firebase.initializeApp();
       _isReady = true;
-    } catch (_) {
+    } catch (e) {
       _isReady = false;
+      _setServiceError('Failed to initialize Firebase.', e);
     }
   }
 
@@ -30,6 +48,7 @@ class FirebaseService {
     required String password,
   }) async {
     _lastAuthError = null;
+    _clearServiceError();
     if (!_isReady) return null;
     try {
       final credential = await FirebaseAuth.instance
@@ -53,8 +72,9 @@ class FirebaseService {
       );
       try {
         await saveUserProfile(fallback);
-      } catch (_) {
+      } catch (e) {
         // Keep sign-in successful even if profile sync fails temporarily.
+        _setServiceError('Signed in, but could not sync your profile yet.', e);
       }
       return fallback;
     } on FirebaseAuthException catch (e) {
@@ -67,8 +87,9 @@ class FirebaseService {
       }
       _lastAuthError = _mapAuthError(e.code, e.message);
       return null;
-    } catch (_) {
+    } catch (e) {
       _lastAuthError = 'Unable to sign in right now. Please try again.';
+      _setServiceError('Sign-in failed unexpectedly.', e);
       return null;
     }
   }
@@ -84,6 +105,7 @@ class FirebaseService {
     List<String> conditions = const [],
   }) async {
     _lastAuthError = null;
+    _clearServiceError();
     if (!_isReady) return null;
     try {
       final credential = await FirebaseAuth.instance
@@ -108,8 +130,9 @@ class FirebaseService {
       );
       try {
         await saveUserProfile(profile);
-      } catch (_) {
+      } catch (e) {
         // Account creation succeeded; do not fail signup if Firestore sync fails.
+        _setServiceError('Account created, but profile sync is pending.', e);
       }
       return profile;
     } on FirebaseAuthException catch (e) {
@@ -128,22 +151,26 @@ class FirebaseService {
       }
       _lastAuthError = _mapAuthError(e.code, e.message);
       return null;
-    } catch (_) {
+    } catch (e) {
       _lastAuthError = 'Unable to create account right now. Please try again.';
+      _setServiceError('Sign-up failed unexpectedly.', e);
       return null;
     }
   }
 
   static Future<void> signOut() async {
+    _clearServiceError();
     if (!_isReady) return;
     try {
       await FirebaseAuth.instance.signOut();
-    } catch (_) {
+    } catch (e) {
       // Ignore sign-out failures for local fallback mode.
+      _setServiceError('Failed to sign out from Firebase.', e);
     }
   }
 
   static Future<void> saveUserProfile(AppUser user) async {
+    _clearServiceError();
     if (!_isReady) return;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null || current.uid != user.uid) return;
@@ -152,12 +179,14 @@ class FirebaseService {
           .collection('users')
           .doc(user.uid)
           .set(user.toMap(), SetOptions(merge: true));
-    } catch (_) {
+    } catch (e) {
       // Keep app functional in fallback mode when SDK-auth is unavailable.
+      _setServiceError('Could not save profile to cloud.', e);
     }
   }
 
   static Future<AppUser?> loadUserProfile(String uid) async {
+    _clearServiceError();
     if (!_isReady) return null;
     try {
       final snap = await FirebaseFirestore.instance
@@ -166,12 +195,14 @@ class FirebaseService {
           .get();
       if (!snap.exists || snap.data() == null) return null;
       return AppUser.fromMap(snap.data()!);
-    } catch (_) {
+    } catch (e) {
+      _setServiceError('Could not load user profile from cloud.', e);
       return null;
     }
   }
 
   static Future<List<HealthDocument>?> loadDocuments(String uid) async {
+    _clearServiceError();
     if (!_isReady) return null;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null) return null;
@@ -187,13 +218,15 @@ class FirebaseService {
           .toList()
         ..sort((a, b) => b.uploadedAt.compareTo(a.uploadedAt));
       return docs;
-    } catch (_) {
+    } catch (e) {
+      _setServiceError('Could not load documents from cloud.', e);
       return null;
     }
   }
 
   static Future<void> saveDocuments(
       String uid, List<HealthDocument> docs) async {
+    _clearServiceError();
     if (!_isReady) return;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null || current.uid != uid) return;
@@ -217,10 +250,16 @@ class FirebaseService {
       }
     }
 
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (e) {
+      _setServiceError('Could not sync documents to cloud.', e);
+      rethrow;
+    }
   }
 
   static Future<List<MedicineReminder>?> loadMedicines(String uid) async {
+    _clearServiceError();
     if (!_isReady) return null;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null) return null;
@@ -232,13 +271,15 @@ class FirebaseService {
           .collection('medicines')
           .get();
       return snap.docs.map((d) => MedicineReminder.fromMap(d.data())).toList();
-    } catch (_) {
+    } catch (e) {
+      _setServiceError('Could not load medicines from cloud.', e);
       return null;
     }
   }
 
   static Future<void> saveMedicines(
       String uid, List<MedicineReminder> medicines) async {
+    _clearServiceError();
     if (!_isReady) return;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null) return;
@@ -262,7 +303,12 @@ class FirebaseService {
       }
     }
 
-    await batch.commit();
+    try {
+      await batch.commit();
+    } catch (e) {
+      _setServiceError('Could not sync medicines to cloud.', e);
+      rethrow;
+    }
   }
 
   static Future<void> clearDocuments(String uid) async {
@@ -274,6 +320,7 @@ class FirebaseService {
   }
 
   static Future<String?> generatePairingCode(String patientId) async {
+    _clearServiceError();
     if (!_isReady) return null;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null || current.uid != patientId) return null;
@@ -293,14 +340,16 @@ class FirebaseService {
           'used': false,
         });
         return code;
-      } catch (_) {
+      } catch (e) {
         // Retry with a new code if this write fails transiently.
+        _setServiceError('Temporary issue while generating pairing code.', e);
       }
     }
     return null;
   }
 
   static Future<String?> submitPairingRequest(String inviteCode) async {
+    _clearServiceError();
     if (!_isReady) return 'Backend is not ready.';
     final current = FirebaseAuth.instance.currentUser;
     if (current == null) return 'Please login again and retry.';
@@ -308,52 +357,67 @@ class FirebaseService {
     final code = inviteCode.trim();
     if (code.isEmpty) return 'Enter a valid invite code.';
 
-    final codeRef = FirebaseFirestore.instance.collection('pairingCodes').doc(code);
-    final codeSnap = await codeRef.get();
-    if (!codeSnap.exists || codeSnap.data() == null) {
-      return 'Invalid invite code.';
+    try {
+      final codeRef = FirebaseFirestore.instance.collection('pairingCodes').doc(code);
+      final codeSnap = await codeRef.get();
+      if (!codeSnap.exists || codeSnap.data() == null) {
+        return 'Invalid invite code.';
+      }
+
+      final data = codeSnap.data()!;
+      final patientId = (data['patientId'] ?? '').toString();
+      final used = data['used'] == true;
+      final expiresAt = (data['expiresAt'] as Timestamp?)?.toDate();
+
+      if (patientId.isEmpty) return 'Invite code is invalid.';
+      if (patientId == current.uid) return 'You cannot pair your own account.';
+      if (used) return 'This invite code has already been used.';
+      if (expiresAt != null && DateTime.now().toUtc().isAfter(expiresAt.toUtc())) {
+        return 'Invite code expired. Ask patient to generate a new one.';
+      }
+
+      final reqId = '${patientId}_${current.uid}';
+      final currentProfile = await loadUserProfile(current.uid);
+
+      await FirebaseFirestore.instance.collection('pairingRequests').doc(reqId).set({
+        'requestId': reqId,
+        'patientId': patientId,
+        'guardianId': current.uid,
+        'guardianName': currentProfile?.name ?? current.email?.split('@').first ?? 'Guardian',
+        'guardianEmail': current.email ?? '',
+        'code': code,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      return null;
+    } on FirebaseException catch (e) {
+      _setServiceError('Could not submit pairing request.', e);
+      return 'Could not submit pairing request right now. Please retry.';
+    } catch (e) {
+      _setServiceError('Unexpected error while submitting pairing request.', e);
+      return 'Could not submit pairing request right now. Please retry.';
     }
-
-    final data = codeSnap.data()!;
-    final patientId = (data['patientId'] ?? '').toString();
-    final used = data['used'] == true;
-    final expiresAt = (data['expiresAt'] as Timestamp?)?.toDate();
-
-    if (patientId.isEmpty) return 'Invite code is invalid.';
-    if (patientId == current.uid) return 'You cannot pair your own account.';
-    if (used) return 'This invite code has already been used.';
-    if (expiresAt != null && DateTime.now().toUtc().isAfter(expiresAt.toUtc())) {
-      return 'Invite code expired. Ask patient to generate a new one.';
-    }
-
-    final reqId = '${patientId}_${current.uid}';
-    final currentProfile = await loadUserProfile(current.uid);
-
-    await FirebaseFirestore.instance.collection('pairingRequests').doc(reqId).set({
-      'requestId': reqId,
-      'patientId': patientId,
-      'guardianId': current.uid,
-      'guardianName': currentProfile?.name ?? current.email?.split('@').first ?? 'Guardian',
-      'guardianEmail': current.email ?? '',
-      'code': code,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
-
-    return null;
   }
 
   static Future<List<Map<String, dynamic>>> loadPendingPairingRequests(
       String patientId) async {
+    _clearServiceError();
     if (!_isReady) return const [];
     final current = FirebaseAuth.instance.currentUser;
     if (current == null || current.uid != patientId) return const [];
 
-    final snap = await FirebaseFirestore.instance
-        .collection('pairingRequests')
-        .where('patientId', isEqualTo: patientId)
-        .get();
+    QuerySnapshot<Map<String, dynamic>> snap;
+    try {
+      snap = await FirebaseFirestore.instance
+          .collection('pairingRequests')
+          .where('patientId', isEqualTo: patientId)
+          .get();
+    } catch (e) {
+      _setServiceError('Could not load pending pairing requests.', e);
+      return const [];
+    }
 
     final items = snap.docs
         .map((d) => d.data())

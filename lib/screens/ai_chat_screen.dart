@@ -18,6 +18,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   final _focusNode = FocusNode();
   bool _isSending = false;
   bool _isInputFocused = false;
+  String _aiRouteNote = 'Ready';
 
   final List<ChatMessage> _messages = [
     ChatMessage(
@@ -99,13 +100,13 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     child: const Icon(Icons.smart_toy_rounded,
                       color: Colors.white, size: 26)),
                   const SizedBox(width: 12),
-                  const Expanded(child: Column(
+                  Expanded(child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('AI Health Assistant', style: TextStyle(
+                      const Text('AI Health Assistant', style: TextStyle(
                         color: Colors.white, fontSize: 18,
                         fontWeight: FontWeight.w700)),
-                      Text('Powered by Gemini AI', style: TextStyle(
+                      Text(_aiRouteNote, style: const TextStyle(
                         color: Colors.white70, fontSize: 13)),
                     ])),
                   Container(
@@ -114,10 +115,10 @@ class _AIChatScreenState extends State<AIChatScreen> {
                     decoration: BoxDecoration(
                       color: Colors.white.withValues(alpha: 0.2),
                       borderRadius: BorderRadius.circular(12)),
-                    child: const Row(children: [
-                      Icon(Icons.circle, color: Color(0xFF2ECC71), size: 8),
+                    child: Row(children: [
+                      Icon(Icons.circle, color: _providerColor(), size: 8),
                       SizedBox(width: 5),
-                      Text('Live', style: TextStyle(
+                      Text(_providerLabel(), style: const TextStyle(
                         color: Colors.white, fontSize: 11,
                         fontWeight: FontWeight.w600)),
                     ])),
@@ -280,6 +281,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
       );
       if (mounted) {
         setState(() {
+          _aiRouteNote = AIService.lastRouteNote;
           _messages.removeWhere((m) => m.isLoading);
           _messages.add(ChatMessage(
             id: DateTime.now().millisecondsSinceEpoch.toString(),
@@ -292,6 +294,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
+          _aiRouteNote = 'AI request failed';
           _messages.removeWhere((m) => m.isLoading);
           _messages.add(ChatMessage(
             id: 'err',
@@ -312,6 +315,28 @@ class _AIChatScreenState extends State<AIChatScreen> {
           curve: Curves.easeOut);
       }
     });
+  }
+
+  String _providerLabel() {
+    switch (AIService.lastProvider) {
+      case 'tunnel':
+        return 'Local AI';
+      case 'cloud':
+        return 'Fallback';
+      default:
+        return 'Idle';
+    }
+  }
+
+  Color _providerColor() {
+    switch (AIService.lastProvider) {
+      case 'tunnel':
+        return const Color(0xFF2ECC71);
+      case 'cloud':
+        return AppTheme.warning;
+      default:
+        return Colors.white70;
+    }
   }
 }
 

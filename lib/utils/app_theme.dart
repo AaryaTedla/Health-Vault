@@ -109,6 +109,36 @@ class AppConstants {
     if (envKey.isNotEmpty) return envKey;
     return const String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
   }
+  static String get tunnelBaseUrl {
+    final envUrl = dotenv.env['HEALTHVAULT_TUNNEL_URL']?.trim() ?? '';
+    if (envUrl.isNotEmpty) return envUrl;
+    return const String.fromEnvironment('HEALTHVAULT_TUNNEL_URL', defaultValue: '');
+  }
+  static String get tunnelAuthToken {
+    final envToken = dotenv.env['HEALTHVAULT_TUNNEL_TOKEN']?.trim() ?? '';
+    if (envToken.isNotEmpty) return envToken;
+    return const String.fromEnvironment('HEALTHVAULT_TUNNEL_TOKEN', defaultValue: '');
+  }
+  static String get tunnelModel {
+    final envModel = dotenv.env['HEALTHVAULT_TUNNEL_MODEL']?.trim() ?? '';
+    if (envModel.isNotEmpty) return envModel;
+    return const String.fromEnvironment(
+      'HEALTHVAULT_TUNNEL_MODEL',
+      defaultValue: 'local-health-model',
+    );
+  }
+  static int get cloudFallbackDailyCap {
+    final envCapRaw = dotenv.env['HEALTHVAULT_CLOUD_FALLBACK_DAILY_CAP']?.trim() ?? '';
+    final envCap = int.tryParse(envCapRaw);
+    if (envCap != null && envCap > 0) return envCap;
+    const buildCapRaw = String.fromEnvironment(
+      'HEALTHVAULT_CLOUD_FALLBACK_DAILY_CAP',
+      defaultValue: '20',
+    );
+    final buildCap = int.tryParse(buildCapRaw);
+    if (buildCap != null && buildCap > 0) return buildCap;
+    return 20;
+  }
   static const List<String> languages = ['English', 'Hindi', 'Telugu', 'Kannada', 'Tamil'];
 
   static const List<String> documentTypes = [
