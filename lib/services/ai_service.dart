@@ -54,7 +54,7 @@ Keep total under 250 words.
         ? conversationHistory.sublist(conversationHistory.length - 6).join('\n')
         : conversationHistory.join('\n');
     final prompt = """
-You are HealthVault, a warm caring health companion for elderly patients in India.
+  You are Myra, a warm caring health companion for elderly patients in India.
 Patient Name: $patientName
 Known Health Conditions: $condText
 Recent conversation:

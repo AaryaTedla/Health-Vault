@@ -39,7 +39,7 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               Container(
                 width: double.infinity,
-                height: size.height * 0.35,
+                height: size.height * 0.31,
                 decoration: const BoxDecoration(
                   gradient: LinearGradient(
                     begin: Alignment.topLeft, end: Alignment.bottomRight,
@@ -50,24 +50,31 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: SafeArea(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       Container(
-                        width: 80, height: 80,
+                        width: 84,
+                        height: 84,
+                        padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
+                          color: Colors.white.withValues(alpha: 0.16),
                           shape: BoxShape.circle,
                           border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.4), width: 2)),
-                        child: const Icon(Icons.favorite_rounded,
-                          color: Colors.white, size: 44),
+                            color: Colors.white.withValues(alpha: 0.42), width: 2)),
+                        child: ClipOval(
+                          child: Image.asset(
+                            'assets/images/image.png',
+                            fit: BoxFit.contain,
+                          ),
+                        ),
                       ).animate().scale(duration: 600.ms, curve: Curves.elasticOut),
-                      const SizedBox(height: 14),
-                      const Text('HealthVault', style: TextStyle(
+                      const SizedBox(height: 10),
+                      const Text('Myra', style: TextStyle(
                         color: Colors.white, fontSize: 26, fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 2),
                       Text('Where your health is never forgotten',
                         style: TextStyle(color: Colors.white.withValues(alpha: 0.85), fontSize: 13)),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                         decoration: BoxDecoration(

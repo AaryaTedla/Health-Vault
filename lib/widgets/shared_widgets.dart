@@ -2,6 +2,84 @@ import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import '../utils/app_theme.dart';
 
+class MyraLogo extends StatelessWidget {
+  final double size;
+  final Color foregroundColor;
+  final Color backgroundColor;
+  final bool showLabel;
+
+  const MyraLogo({
+    super.key,
+    this.size = 84,
+    this.foregroundColor = Colors.white,
+    this.backgroundColor = AppTheme.primary,
+    this.showLabel = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final iconSize = size * 0.34;
+    final labelSize = size * 0.22;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: backgroundColor == Colors.transparent
+                ? const LinearGradient(
+                    colors: [AppTheme.primaryDark, AppTheme.primary, AppTheme.secondary],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            color: backgroundColor == Colors.transparent ? null : backgroundColor,
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.primary.withValues(alpha: 0.2),
+                blurRadius: 16,
+                offset: const Offset(0, 8),
+              ),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(Icons.favorite_rounded, color: foregroundColor, size: iconSize),
+              Positioned(
+                bottom: size * 0.17,
+                child: Container(
+                  width: size * 0.46,
+                  height: size * 0.06,
+                  decoration: BoxDecoration(
+                    color: foregroundColor.withValues(alpha: 0.92),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (showLabel) ...[
+          const SizedBox(height: 10),
+          Text(
+            'Myra',
+            style: TextStyle(
+              color: foregroundColor,
+              fontSize: labelSize,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.6,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 // ─── Gradient Header ──────────────────────────────────────────────────────────
 class GradientHeader extends StatelessWidget {
   final String title;

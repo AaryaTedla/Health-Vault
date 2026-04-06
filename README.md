@@ -1,6 +1,6 @@
-# HealthVault
+# Myra
 
-HealthVault is an elderly-first Flutter app for managing health records, medicines, appointments, and emergency workflows, with AI assistance and patient-guardian collaboration.
+Myra is an elderly-first Flutter app for managing health records, medicines, appointments, and emergency workflows, with AI assistance and patient-guardian collaboration.
 
 ## What Is Implemented
 
@@ -198,4 +198,4 @@ flutter test
 
 ## Disclaimer
 
-HealthVault provides supportive information only. It is not a replacement for professional medical advice, diagnosis, or treatment.
+Myra provides supportive information only. It is not a replacement for professional medical advice, diagnosis, or treatment.

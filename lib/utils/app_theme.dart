@@ -128,7 +128,7 @@ class AppTheme {
 }
 
 class AppConstants {
-  static const String appName = 'HealthVault';
+  static const String appName = 'Myra';
   static String get geminiApiKey {
     final envKey = dotenv.env['OPENROUTER_API_KEY']?.trim() ?? '';
     if (envKey.isNotEmpty) {

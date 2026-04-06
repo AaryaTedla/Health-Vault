@@ -26,7 +26,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   final List<ChatMessage> _messages = [
     ChatMessage(
       id: '0',
-      content: 'Hello! I am your HealthVault companion 😊\n\n'
+      content: 'Hello! I am your Myra companion 😊\n\n'
           'I can help you:\n'
           '• Understand your medical reports in simple language\n'
           '• Explain what your symptoms might mean\n'

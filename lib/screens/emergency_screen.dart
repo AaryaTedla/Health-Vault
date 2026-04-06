@@ -433,9 +433,9 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     final lng = (live?['longitude'] as num?)?.toDouble();
     final locationLine = (lat != null && lng != null)
         ? 'Current location: https://maps.google.com/?q=${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}'
-        : 'Live location is being shared in the HealthVault app.';
+        : 'Live location is being shared in the Myra app.';
     final message = [
-      'Emergency alert from ${user?.name ?? 'HealthVault user'}.',
+      'Emergency alert from ${user?.name ?? 'Myra user'}.',
       locationLine,
       if ((user?.phone ?? '').trim().isNotEmpty) 'Call back: ${user!.phone}',
     ].join('\n');

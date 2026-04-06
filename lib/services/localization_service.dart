@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Complete localization service for HealthVault
+/// Complete localization service for Myra
 /// Supports dynamic language switching with persisted preferences
 class LocalizationService {
   static const String _languagePrefsKey = 'app_language';
@@ -42,7 +42,7 @@ class LocalizationService {
     _translations = {
       'en': {
         // App
-        'app_name': 'HealthVault',
+        'app_name': 'Myra',
         'home': 'Home',
         'records': 'Records',
         'medicines': 'Medicines',
@@ -157,7 +157,7 @@ class LocalizationService {
       },
       'hi': {
         // App
-        'app_name': 'HealthVault',
+        'app_name': 'Myra',
         'home': 'होम',
         'records': 'दस्तावेज़',
         'medicines': 'दवाइयां',

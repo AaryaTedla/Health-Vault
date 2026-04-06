@@ -29,7 +29,7 @@ class TermsScreen extends StatelessWidget {
                   Expanded(child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('HealthVault', style: TextStyle(
+                      const Text('Myra', style: TextStyle(
                         color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
                       Text('Terms of Service & Privacy Policy', style: TextStyle(
                         color: Colors.white.withValues(alpha: 0.85), fontSize: 13)),
@@ -63,12 +63,12 @@ class TermsScreen extends StatelessWidget {
                   const SizedBox(height: 12),
                   const Text(
                     'AI-generated summaries, explanations, and voice responses provided by '
-                    'HealthVault are NOT medical diagnoses, medical advice, or a substitute '
+                    'Myra are NOT medical diagnoses, medical advice, or a substitute '
                     'for professional medical consultation.\n\n'
                     'You MUST consult a qualified, licensed doctor or healthcare professional '
                     'before making any medical decisions, changing medications, or acting on '
                     'information provided by this application.\n\n'
-                    'HealthVault is an information and organization tool only.',
+                    'Myra is an information and organization tool only.',
                     style: TextStyle(fontSize: 14, height: 1.7, color: AppTheme.textPrimary)),
                 ],
               ),
@@ -107,11 +107,11 @@ class TermsScreen extends StatelessWidget {
 
             _buildSection('6. Document Storage',
               'Uploaded documents are stored in encrypted cloud storage. '
-              'HealthVault does not share your documents with any third parties '
+              'Myra does not share your documents with any third parties '
               'without your explicit consent. You can delete your data at any time.'),
 
             _buildSection('7. Limitation of Liability',
-              'Team Tesla and HealthVault are not liable for any medical decisions '
+              'Team Tesla and Myra are not liable for any medical decisions '
               'made based on information from this application. This app is a prototype '
               'developed for educational purposes under PES University CIE.'),
 
