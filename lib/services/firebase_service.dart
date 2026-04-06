@@ -526,6 +526,33 @@ class FirebaseService {
     return true;
   }
 
+  static Future<Map<String, dynamic>?> loadLatestPairingRequestForGuardian(
+      String guardianId) async {
+    if (!_isReady) return null;
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null || current.uid != guardianId) return null;
+
+    final snap = await FirebaseFirestore.instance
+        .collection('pairingRequests')
+        .where('guardianId', isEqualTo: guardianId)
+        .get();
+
+    if (snap.docs.isEmpty) return null;
+
+    final items = snap.docs.map((d) => d.data()).toList();
+    items.sort((a, b) {
+      final ta = (a['updatedAt'] as Timestamp?)?.toDate() ??
+          (a['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime(1970);
+      final tb = (b['updatedAt'] as Timestamp?)?.toDate() ??
+          (b['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime(1970);
+      return tb.compareTo(ta);
+    });
+
+    return items.first;
+  }
+
   static Future<String?> loadLinkedPatientIdForGuardian(
       String guardianId) async {
     if (!_isReady) return null;
