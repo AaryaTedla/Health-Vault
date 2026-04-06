@@ -189,10 +189,8 @@ class FirebaseService {
     _clearServiceError();
     if (!_isReady) return null;
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .get();
+      final snap =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
       if (!snap.exists || snap.data() == null) return null;
       return AppUser.fromMap(snap.data()!);
     } catch (e) {
@@ -328,7 +326,8 @@ class FirebaseService {
     final rng = Random.secure();
     for (int i = 0; i < 8; i++) {
       final code = (100000 + rng.nextInt(900000)).toString();
-      final ref = FirebaseFirestore.instance.collection('pairingCodes').doc(code);
+      final ref =
+          FirebaseFirestore.instance.collection('pairingCodes').doc(code);
       final now = DateTime.now().toUtc();
       final expiry = now.add(const Duration(minutes: 20));
       try {
@@ -358,7 +357,8 @@ class FirebaseService {
     if (code.isEmpty) return 'Enter a valid invite code.';
 
     try {
-      final codeRef = FirebaseFirestore.instance.collection('pairingCodes').doc(code);
+      final codeRef =
+          FirebaseFirestore.instance.collection('pairingCodes').doc(code);
       final codeSnap = await codeRef.get();
       if (!codeSnap.exists || codeSnap.data() == null) {
         return 'Invalid invite code.';
@@ -372,18 +372,24 @@ class FirebaseService {
       if (patientId.isEmpty) return 'Invite code is invalid.';
       if (patientId == current.uid) return 'You cannot pair your own account.';
       if (used) return 'This invite code has already been used.';
-      if (expiresAt != null && DateTime.now().toUtc().isAfter(expiresAt.toUtc())) {
+      if (expiresAt != null &&
+          DateTime.now().toUtc().isAfter(expiresAt.toUtc())) {
         return 'Invite code expired. Ask patient to generate a new one.';
       }
 
       final reqId = '${patientId}_${current.uid}';
       final currentProfile = await loadUserProfile(current.uid);
 
-      await FirebaseFirestore.instance.collection('pairingRequests').doc(reqId).set({
+      await FirebaseFirestore.instance
+          .collection('pairingRequests')
+          .doc(reqId)
+          .set({
         'requestId': reqId,
         'patientId': patientId,
         'guardianId': current.uid,
-        'guardianName': currentProfile?.name ?? current.email?.split('@').first ?? 'Guardian',
+        'guardianName': currentProfile?.name ??
+            current.email?.split('@').first ??
+            'Guardian',
         'guardianEmail': current.email ?? '',
         'code': code,
         'status': 'pending',
@@ -437,7 +443,8 @@ class FirebaseService {
     final current = FirebaseAuth.instance.currentUser;
     if (current == null) return false;
 
-    final reqRef = FirebaseFirestore.instance.collection('pairingRequests').doc(requestId);
+    final reqRef =
+        FirebaseFirestore.instance.collection('pairingRequests').doc(requestId);
     final reqSnap = await reqRef.get();
     final req = reqSnap.data();
     if (!reqSnap.exists || req == null) return false;
@@ -478,7 +485,10 @@ class FirebaseService {
 
     final code = (req['code'] ?? '').toString();
     if (code.isNotEmpty) {
-      await FirebaseFirestore.instance.collection('pairingCodes').doc(code).set({
+      await FirebaseFirestore.instance
+          .collection('pairingCodes')
+          .doc(code)
+          .set({
         'used': true,
         'usedBy': guardianId,
         'usedAt': FieldValue.serverTimestamp(),
@@ -497,7 +507,8 @@ class FirebaseService {
     final current = FirebaseAuth.instance.currentUser;
     if (current == null) return false;
 
-    final reqRef = FirebaseFirestore.instance.collection('pairingRequests').doc(requestId);
+    final reqRef =
+        FirebaseFirestore.instance.collection('pairingRequests').doc(requestId);
     final reqSnap = await reqRef.get();
     final req = reqSnap.data();
     if (!reqSnap.exists || req == null) return false;
@@ -515,7 +526,8 @@ class FirebaseService {
     return true;
   }
 
-  static Future<String?> loadLinkedPatientIdForGuardian(String guardianId) async {
+  static Future<String?> loadLinkedPatientIdForGuardian(
+      String guardianId) async {
     if (!_isReady) return null;
     final current = FirebaseAuth.instance.currentUser;
     if (current == null || current.uid != guardianId) return null;
@@ -531,8 +543,10 @@ class FirebaseService {
       if (snap.docs.isNotEmpty) {
         return (snap.docs.first.data()['patientId'] ?? '').toString();
       }
-    } catch (_) {
+    } catch (e) {
       // Fall back to pairing requests lookup below.
+      debugPrint(
+          'loadPatientIdForGuardian: careLinks query failed, trying pairing requests. Error: $e');
     }
 
     // Fallback path helps when careLinks query is temporarily unavailable.
@@ -607,7 +621,8 @@ class FirebaseService {
         return {
           'guardianId': (data['guardianId'] ?? '').toString(),
           'response': (data['response'] ?? '').toString(),
-          'etaMinutes': data['etaMinutes'] is int ? data['etaMinutes'] as int : null,
+          'etaMinutes':
+              data['etaMinutes'] is int ? data['etaMinutes'] as int : null,
           'updatedAt': (data['updatedAt'] as Timestamp?)?.toDate(),
         };
       }).toList();
@@ -619,7 +634,8 @@ class FirebaseService {
       });
 
       return items;
-    } catch (_) {
+    } catch (e) {
+      _setServiceError('Failed to load guardian emergency responses.', e);
       return const [];
     }
   }
@@ -646,7 +662,8 @@ class FirebaseService {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
       return true;
-    } catch (_) {
+    } catch (e) {
+      _setServiceError('Failed to save guardian emergency response.', e);
       return false;
     }
   }

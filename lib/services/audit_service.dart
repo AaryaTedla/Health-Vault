@@ -52,4 +52,30 @@ class AuditService {
       return const [];
     }
   }
+
+  /// Log voice-related actions and sessions
+  static Future<void> logVoiceAction({
+    required String action,
+    Map<String, dynamic> details = const {},
+  }) async {
+    if (!FirebaseService.isReady) return;
+
+    final actor = FirebaseAuth.instance.currentUser;
+    if (actor == null) return;
+
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(actor.uid)
+          .collection('voiceAuditLogs')
+          .add({
+        'action': action,
+        'details': details,
+        'timestamp': FieldValue.serverTimestamp(),
+        'ownerUserId': actor.uid,
+      });
+    } catch (_) {
+      // Keep app flow uninterrupted even if voice audit logging fails
+    }
+  }
 }

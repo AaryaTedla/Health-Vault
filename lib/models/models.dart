@@ -1,5 +1,3 @@
-
-
 // ─── User Model ───────────────────────────────────────────────────────────────
 class AppUser {
   final String uid;
@@ -53,13 +51,20 @@ class AppUser {
   }
 
   Map<String, dynamic> toMap() => {
-    'uid': uid, 'name': name, 'email': email, 'phone': phone,
-    'accountType': accountType, 'language': language,
-    'linkedPatientId': linkedPatientId, 'guardianIds': guardianIds,
-    'emergencyContacts': emergencyContacts.map((e) => e.toMap()).toList(),
-    'createdAt': createdAt.toIso8601String(), 'age': age,
-    'bloodGroup': bloodGroup, 'conditions': conditions,
-  };
+        'uid': uid,
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'accountType': accountType,
+        'language': language,
+        'linkedPatientId': linkedPatientId,
+        'guardianIds': guardianIds,
+        'emergencyContacts': emergencyContacts.map((e) => e.toMap()).toList(),
+        'createdAt': createdAt.toIso8601String(),
+        'age': age,
+        'bloodGroup': bloodGroup,
+        'conditions': conditions,
+      };
 
   bool get isPatient => accountType == 'patient';
   bool get isGuardian => accountType == 'guardian';
@@ -71,12 +76,17 @@ class EmergencyContact {
   final String phone;
   final String relation;
 
-  EmergencyContact({required this.name, required this.phone, required this.relation});
+  EmergencyContact(
+      {required this.name, required this.phone, required this.relation});
 
   factory EmergencyContact.fromMap(Map<String, dynamic> map) =>
-      EmergencyContact(name: map['name'] ?? '', phone: map['phone'] ?? '', relation: map['relation'] ?? '');
+      EmergencyContact(
+          name: map['name'] ?? '',
+          phone: map['phone'] ?? '',
+          relation: map['relation'] ?? '');
 
-  Map<String, dynamic> toMap() => {'name': name, 'phone': phone, 'relation': relation};
+  Map<String, dynamic> toMap() =>
+      {'name': name, 'phone': phone, 'relation': relation};
 }
 
 // ─── Health Document ──────────────────────────────────────────────────────────
@@ -136,22 +146,35 @@ class HealthDocument {
   }
 
   Map<String, dynamic> toMap() => {
-    'id': id, 'patientId': patientId, 'name': name,
-    'hospitalName': hospitalName, 'documentType': documentType,
-    'fileUrl': fileUrl, 'fileType': fileType, 'notes': notes,
-    'aiSummary': aiSummary, 'aiSummaryHindi': aiSummaryHindi,
-    'aiSummaryTelugu': aiSummaryTelugu, 'aiSummaryKannada': aiSummaryKannada,
-    'aiSummaryTamil': aiSummaryTamil,
-    'uploadedAt': uploadedAt.toIso8601String(), 'fileSize': fileSize,
-  };
+        'id': id,
+        'patientId': patientId,
+        'name': name,
+        'hospitalName': hospitalName,
+        'documentType': documentType,
+        'fileUrl': fileUrl,
+        'fileType': fileType,
+        'notes': notes,
+        'aiSummary': aiSummary,
+        'aiSummaryHindi': aiSummaryHindi,
+        'aiSummaryTelugu': aiSummaryTelugu,
+        'aiSummaryKannada': aiSummaryKannada,
+        'aiSummaryTamil': aiSummaryTamil,
+        'uploadedAt': uploadedAt.toIso8601String(),
+        'fileSize': fileSize,
+      };
 
   String? summaryForLanguage(String lang) {
     switch (lang) {
-      case 'Hindi': return aiSummaryHindi ?? aiSummary;
-      case 'Telugu': return aiSummaryTelugu ?? aiSummary;
-      case 'Kannada': return aiSummaryKannada ?? aiSummary;
-      case 'Tamil': return aiSummaryTamil ?? aiSummary;
-      default: return aiSummary;
+      case 'Hindi':
+        return aiSummaryHindi ?? aiSummary;
+      case 'Telugu':
+        return aiSummaryTelugu ?? aiSummary;
+      case 'Kannada':
+        return aiSummaryKannada ?? aiSummary;
+      case 'Tamil':
+        return aiSummaryTamil ?? aiSummary;
+      default:
+        return aiSummary;
     }
   }
 }
@@ -207,14 +230,20 @@ class MedicineReminder {
   }
 
   Map<String, dynamic> toMap() => {
-    'id': id, 'patientId': patientId, 'medicineName': medicineName,
-    'dosage': dosage, 'frequency': frequency, 'times': times,
-    'duration': duration,
-    'startDate': startDate.toIso8601String(),
-    'endDate': endDate?.toIso8601String(),
-    'lastTakenAt': lastTakenAt?.toIso8601String(),
-    'isActive': isActive, 'notes': notes, 'color': color,
-  };
+        'id': id,
+        'patientId': patientId,
+        'medicineName': medicineName,
+        'dosage': dosage,
+        'frequency': frequency,
+        'times': times,
+        'duration': duration,
+        'startDate': startDate.toIso8601String(),
+        'endDate': endDate?.toIso8601String(),
+        'lastTakenAt': lastTakenAt?.toIso8601String(),
+        'isActive': isActive,
+        'notes': notes,
+        'color': color,
+      };
 }
 
 // ─── Chat Message ─────────────────────────────────────────────────────────────
@@ -244,8 +273,12 @@ class HealthStat {
   final String trend;
 
   HealthStat({
-    required this.label, required this.value, required this.unit,
-    required this.icon, required this.color, required this.trend,
+    required this.label,
+    required this.value,
+    required this.unit,
+    required this.icon,
+    required this.color,
+    required this.trend,
   });
 }
 
@@ -289,6 +322,131 @@ class Appointment {
         'notes': notes,
         'completed': completed,
       };
+}
+
+// ─── Voice & Audio Models ─────────────────────────────────────────────────────
+enum VoiceState {
+  idle, // Ready for input
+  listening, // Recording audio
+  transcribing, // Converting speech to text
+  confirming, // Showing user "Did you say this?"
+  executing, // Running the command
+  speaking, // TTS output
+  error, // Error state
+}
+
+enum VoiceIntentType {
+  navigate, // Navigate to screen
+  medicine, // Medicine operations
+  appointment, // Appointment operations
+  document, // Document operations
+  emergency, // Emergency trigger
+  guardian, // Guardian status
+  profile, // Profile operations
+  unknown, // Unknown intent
+}
+
+enum VoiceOutcome {
+  success, // Action completed successfully
+  cancelled, // User cancelled the action
+  failed, // Action failed
+  timeout, // Voice operation timed out
+  noSpeech, // No speech detected
+  micDenied, // Microphone permission denied
+  stsFailed, // Speech-to-text failed
+  ttsFailed, // Text-to-speech failed
+}
+
+class VoiceSession {
+  final String id;
+  final String language; // 'en', 'hi'
+  final VoiceState state;
+  final String? transcript; // What user said
+  final VoiceIntentType? intent; // Recognized intent
+  final double? confidence; // 0.0 to 1.0
+  final DateTime startedAt;
+  final DateTime? endedAt;
+  final VoiceOutcome? outcome;
+  final String? errorMessage;
+  final Map<String, dynamic>? actionParams; // What to execute
+
+  VoiceSession({
+    required this.id,
+    required this.language,
+    required this.state,
+    this.transcript,
+    this.intent,
+    this.confidence,
+    required this.startedAt,
+    this.endedAt,
+    this.outcome,
+    this.errorMessage,
+    this.actionParams,
+  });
+
+  Duration? get duration {
+    final end = endedAt ?? DateTime.now();
+    return end.difference(startedAt);
+  }
+
+  bool get isActive => state != VoiceState.idle && endedAt == null;
+
+  factory VoiceSession.fromMap(Map<String, dynamic> map) {
+    return VoiceSession(
+      id: map['id'] ?? '',
+      language: map['language'] ?? 'en',
+      state: _voiceStateFromString(map['state']),
+      transcript: map['transcript'],
+      intent: _voiceIntentTypeFromString(map['intent']),
+      confidence: map['confidence'],
+      startedAt: _dateTimeFromDynamic(map['startedAt']) ?? DateTime.now(),
+      endedAt: _dateTimeFromDynamic(map['endedAt']),
+      outcome: _voiceOutcomeFromString(map['outcome']),
+      errorMessage: map['errorMessage'],
+      actionParams: map['actionParams'],
+    );
+  }
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'language': language,
+        'state': state.toString(),
+        'transcript': transcript,
+        'intent': intent.toString(),
+        'confidence': confidence,
+        'startedAt': startedAt.toIso8601String(),
+        'endedAt': endedAt?.toIso8601String(),
+        'outcome': outcome.toString(),
+        'errorMessage': errorMessage,
+        'actionParams': actionParams,
+      };
+}
+
+VoiceState _voiceStateFromString(String? value) {
+  if (value == null) return VoiceState.idle;
+  return VoiceState.values.firstWhere(
+    (e) => e.toString() == 'VoiceState.$value',
+    orElse: () => VoiceState.idle,
+  );
+}
+
+VoiceIntentType _voiceIntentTypeFromString(String? value) {
+  if (value == null) return VoiceIntentType.unknown;
+  return VoiceIntentType.values.firstWhere(
+    (e) => e.toString() == 'VoiceIntentType.$value',
+    orElse: () => VoiceIntentType.unknown,
+  );
+}
+
+VoiceOutcome? _voiceOutcomeFromString(String? value) {
+  if (value == null) return null;
+  try {
+    return VoiceOutcome.values.firstWhere(
+      (e) => e.toString() == 'VoiceOutcome.$value',
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 DateTime? _dateTimeFromDynamic(dynamic value) {

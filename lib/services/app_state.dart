@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
@@ -45,14 +46,40 @@ class AppState extends ChangeNotifier {
   bool _isRefreshingLiveLocationSnapshot = false;
   bool _isGuardianLinkSyncRunning = false;
   bool _isSyncingRoleContext = false;
+  bool _shouldStopWarmup = false; // Warmup cancellation token
   String? _liveLocationStatusNote;
   DateTime? _lastGuardianNotifiedLiveExpiry;
   bool _crisisModeEnabled = false;
   List<Map<String, dynamic>> _guardianEmergencyResponses = [];
   Map<String, String> _reliabilityStatus = const {};
+  StreamSubscription<User?>? _authStateSubscription;
 
   AppState() {
     _restoreSession();
+    _setupAuthStateListener(); // Listen to Firebase auth changes
+  }
+
+  void _setupAuthStateListener() {
+    // Listen to Firebase Auth state changes to handle persistent login/logout
+    _authStateSubscription = FirebaseAuth.instance.authStateChanges().listen(
+      (User? firebaseUser) {
+        if (firebaseUser == null && _currentUser != null) {
+          // User logged out - clear local session
+          _currentUser = null;
+          notifyListeners();
+        } else if (firebaseUser != null && _currentUser == null) {
+          // User logged in externally - restore their profile
+          _restoreSession();
+        }
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _authStateSubscription?.cancel();
+    _cancelAllBackgroundTimers();
+    super.dispose();
   }
 
   AppUser? get currentUser => _currentUser;
@@ -66,7 +93,8 @@ class AppState extends ChangeNotifier {
   List<MedicineReminder> get medicines => _medicines;
   List<Appointment> get appointments => _appointments;
   String? get activePairingCode => _activePairingCode;
-  List<Map<String, dynamic>> get pendingPairingRequests => _pendingPairingRequests;
+  List<Map<String, dynamic>> get pendingPairingRequests =>
+      _pendingPairingRequests;
   String? get linkedPatientId => _linkedPatientId;
   AppUser? get linkedPatientProfile => _linkedPatientProfile;
   Map<String, bool> get guardianPermissions => _guardianPermissions;
@@ -82,7 +110,8 @@ class AppState extends ChangeNotifier {
   Map<String, dynamic>? get liveLocationSnapshot => _liveLocationSnapshot;
   String? get liveLocationStatusNote => _liveLocationStatusNote;
   bool get crisisModeEnabled => _crisisModeEnabled;
-  List<Map<String, dynamic>> get guardianEmergencyResponses => _guardianEmergencyResponses;
+  List<Map<String, dynamic>> get guardianEmergencyResponses =>
+      _guardianEmergencyResponses;
   Map<String, String> get reliabilityStatus => _reliabilityStatus;
 
   Duration? get liveLocationRemaining {
@@ -117,7 +146,7 @@ class AppState extends ChangeNotifier {
     }
 
     _error = FirebaseService.lastAuthError ??
-      'Sign in failed. Check your email/password and try again.';
+        'Sign in failed. Check your email/password and try again.';
     _setLoading(false);
     return false;
   }
@@ -162,7 +191,7 @@ class AppState extends ChangeNotifier {
     }
 
     _error = FirebaseService.lastAuthError ??
-      'Sign up failed. Please try again with a valid email/password.';
+        'Sign up failed. Please try again with a valid email/password.';
     _setLoading(false);
     return false;
   }
@@ -174,6 +203,7 @@ class AppState extends ChangeNotifier {
         userBeforeSignOut != null &&
         userBeforeSignOut.isPatient;
 
+    _shouldStopWarmup = true; // Signal warmup to stop if running
     _cancelAllBackgroundTimers();
 
     _currentUser = null;
@@ -206,7 +236,8 @@ class AppState extends ChangeNotifier {
 
     if (shouldStopLiveLocation) {
       try {
-        await FirebaseService.stopLiveLocation(patientId: userBeforeSignOut.uid);
+        await FirebaseService.stopLiveLocation(
+            patientId: userBeforeSignOut.uid);
       } catch (e) {
         print('Error stopping live location during sign-out: $e');
       }
@@ -221,16 +252,30 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _postAuthWarmup() async {
+    _shouldStopWarmup = false; // Reset cancellation flag
     try {
+      if (_shouldStopWarmup) return;
       await _syncRoleContext();
+
+      if (_shouldStopWarmup) return;
       await _loadDocuments();
+
+      if (_shouldStopWarmup) return;
       await _loadMedicines();
+
+      if (_shouldStopWarmup) return;
       await _loadAppointments();
+
+      if (_shouldStopWarmup) return;
       await refreshReliabilityStatus();
     } catch (e) {
-      _error = 'We signed you in, but some data failed to load. Pull to refresh.';
-      print('Post-auth warmup failed: $e');
-      notifyListeners();
+      if (!_shouldStopWarmup) {
+        // Only set error if not cancelled
+        _error =
+            'We signed you in, but some data failed to load. Pull to refresh.';
+        print('Post-auth warmup failed: $e');
+        notifyListeners();
+      }
     }
   }
 
@@ -246,7 +291,9 @@ class AppState extends ChangeNotifier {
   }
 
   String _effectiveDataOwnerUid() {
-    if (isGuardian && _linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
+    if (isGuardian &&
+        _linkedPatientId != null &&
+        _linkedPatientId!.isNotEmpty) {
       return _linkedPatientId!;
     }
     return _currentUser?.uid ?? 'demo_001';
@@ -275,7 +322,8 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       print('Error loading documents: $e');
       _documents = [];
-      _error = FirebaseService.lastServiceError ?? 'Unable to load documents right now.';
+      _error = FirebaseService.lastServiceError ??
+          'Unable to load documents right now.';
     }
     notifyListeners();
   }
@@ -344,15 +392,22 @@ class AppState extends ChangeNotifier {
     if (idx == -1) return;
     final doc = _documents[idx];
     final updated = HealthDocument(
-      id: doc.id, patientId: doc.patientId, name: doc.name,
-      hospitalName: doc.hospitalName, documentType: doc.documentType,
-      fileUrl: doc.fileUrl, fileType: doc.fileType, notes: doc.notes,
-      aiSummary: language == 'English' ? summary : doc.aiSummary,
-      aiSummaryHindi: language == 'Hindi' ? summary : doc.aiSummaryHindi,
-      aiSummaryTelugu: language == 'Telugu' ? summary : doc.aiSummaryTelugu,
-      aiSummaryKannada: language == 'Kannada' ? summary : doc.aiSummaryKannada,
-      aiSummaryTamil: language == 'Tamil' ? summary : doc.aiSummaryTamil,
-      uploadedAt: doc.uploadedAt, fileSize: doc.fileSize);
+        id: doc.id,
+        patientId: doc.patientId,
+        name: doc.name,
+        hospitalName: doc.hospitalName,
+        documentType: doc.documentType,
+        fileUrl: doc.fileUrl,
+        fileType: doc.fileType,
+        notes: doc.notes,
+        aiSummary: language == 'English' ? summary : doc.aiSummary,
+        aiSummaryHindi: language == 'Hindi' ? summary : doc.aiSummaryHindi,
+        aiSummaryTelugu: language == 'Telugu' ? summary : doc.aiSummaryTelugu,
+        aiSummaryKannada:
+            language == 'Kannada' ? summary : doc.aiSummaryKannada,
+        aiSummaryTamil: language == 'Tamil' ? summary : doc.aiSummaryTamil,
+        uploadedAt: doc.uploadedAt,
+        fileSize: doc.fileSize);
     _documents[idx] = updated;
     await _saveDocuments();
     notifyListeners();
@@ -384,7 +439,8 @@ class AppState extends ChangeNotifier {
         final jsonStr = prefs.getString('medicines_$uid');
         if (jsonStr != null) {
           final List<dynamic> jsonList = jsonDecode(jsonStr);
-          _medicines = jsonList.map((e) => MedicineReminder.fromMap(e)).toList();
+          _medicines =
+              jsonList.map((e) => MedicineReminder.fromMap(e)).toList();
         } else {
           _medicines = [];
         }
@@ -398,7 +454,8 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       print('Error loading medicines: $e');
       _medicines = [];
-      _error = FirebaseService.lastServiceError ?? 'Unable to load medicines right now.';
+      _error = FirebaseService.lastServiceError ??
+          'Unable to load medicines right now.';
     }
     notifyListeners();
   }
@@ -568,7 +625,10 @@ class AppState extends ChangeNotifier {
     await AuditService.logEvent(
       ownerUserId: _effectiveDataOwnerUid(),
       event: 'appointment_completion_toggled',
-      metadata: {'appointmentId': apptId, 'completed': _appointments[idx].completed},
+      metadata: {
+        'appointmentId': apptId,
+        'completed': _appointments[idx].completed
+      },
     );
     notifyListeners();
   }
@@ -625,11 +685,15 @@ class AppState extends ChangeNotifier {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     final role = isGuardian ? 'Guardian' : 'Patient';
     final linked = isGuardian
-        ? ((_linkedPatientId != null && _linkedPatientId!.isNotEmpty) ? 'Linked' : 'Not linked')
+        ? ((_linkedPatientId != null && _linkedPatientId!.isNotEmpty)
+            ? 'Linked'
+            : 'Not linked')
         : 'Self';
     final liveStatus = _liveLocationSnapshot == null
         ? 'No data'
-        : (_liveLocationSnapshot?['isSharing'] == true ? 'Live sharing active' : 'Idle');
+        : (_liveLocationSnapshot?['isSharing'] == true
+            ? 'Live sharing active'
+            : 'Idle');
 
     _reliabilityStatus = {
       'Backend': FirebaseService.isReady ? 'Connected' : 'Not configured',
@@ -798,7 +862,8 @@ class AppState extends ChangeNotifier {
     if (overdue.isEmpty) return;
 
     final now = DateTime.now();
-    final todayToken = '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
+    final todayToken =
+        '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
     final key = 'missed_alert_sent_${uid}_$todayToken';
     final prefs = await SharedPreferences.getInstance();
     if (prefs.getBool(key) == true) return;
@@ -829,7 +894,8 @@ class AppState extends ChangeNotifier {
     if (!await exportDir.exists()) {
       await exportDir.create(recursive: true);
     }
-    final filePath = '${exportDir.path}/healthvault_export_${DateTime.now().millisecondsSinceEpoch}.json';
+    final filePath =
+        '${exportDir.path}/healthvault_export_${DateTime.now().millisecondsSinceEpoch}.json';
     final file = File(filePath);
     await file.writeAsString(jsonText, flush: true);
 
@@ -921,7 +987,8 @@ class AppState extends ChangeNotifier {
 
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      _liveLocationStatusNote = 'Location service is disabled. Please turn on GPS.';
+      _liveLocationStatusNote =
+          'Location service is disabled. Please turn on GPS.';
       notifyListeners();
       return 'Location service is disabled. Please turn on GPS.';
     }
@@ -937,7 +1004,8 @@ class AppState extends ChangeNotifier {
       return 'Location permission denied.';
     }
     if (permission == LocationPermission.deniedForever) {
-      _liveLocationStatusNote = 'Location permission permanently denied. Enable it from app settings.';
+      _liveLocationStatusNote =
+          'Location permission permanently denied. Enable it from app settings.';
       notifyListeners();
       return 'Location permission permanently denied. Enable it from app settings.';
     }
@@ -995,8 +1063,8 @@ class AppState extends ChangeNotifier {
     _isLiveLocationSharing = false;
     _liveLocationExpiresAt = null;
     _liveLocationStatusNote = expired
-      ? 'Live location auto-stopped after timeout.'
-      : 'Live location sharing stopped.';
+        ? 'Live location auto-stopped after timeout.'
+        : 'Live location sharing stopped.';
     notifyListeners();
 
     if (user != null && user.isPatient) {
@@ -1004,7 +1072,8 @@ class AppState extends ChangeNotifier {
       if (wasSharing) {
         await AuditService.logEvent(
           ownerUserId: user.uid,
-          event: expired ? 'live_location_auto_stopped' : 'live_location_stopped',
+          event:
+              expired ? 'live_location_auto_stopped' : 'live_location_stopped',
         );
       }
     }
@@ -1013,9 +1082,8 @@ class AppState extends ChangeNotifier {
   Future<void> refreshLiveLocationSnapshot() async {
     if (_isRefreshingLiveLocationSnapshot) return;
 
-    final targetPatientId = isGuardian
-        ? (_linkedPatientId ?? '')
-        : (_currentUser?.uid ?? '');
+    final targetPatientId =
+        isGuardian ? (_linkedPatientId ?? '') : (_currentUser?.uid ?? '');
     if (targetPatientId.isEmpty) {
       _liveLocationSnapshot = null;
       notifyListeners();
@@ -1024,7 +1092,8 @@ class AppState extends ChangeNotifier {
 
     _isRefreshingLiveLocationSnapshot = true;
     try {
-      final data = await FirebaseService.loadLiveLocation(patientId: targetPatientId);
+      final data =
+          await FirebaseService.loadLiveLocation(patientId: targetPatientId);
       _liveLocationSnapshot = data;
       _guardianEmergencyResponses =
           await FirebaseService.loadGuardianEmergencyResponses(targetPatientId);
@@ -1032,7 +1101,9 @@ class AppState extends ChangeNotifier {
       final readError = (data?['readError'] ?? '').toString();
       if (readError.isNotEmpty) {
         _liveLocationStatusNote = 'Live location read failed: $readError';
-      } else if ((data?['isSharing'] == true) && data?['latitude'] != null && data?['longitude'] != null) {
+      } else if ((data?['isSharing'] == true) &&
+          data?['latitude'] != null &&
+          data?['longitude'] != null) {
         _liveLocationStatusNote = 'Live location updated.';
       }
 
@@ -1154,7 +1225,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> _cancelMedicineReminders(MedicineReminder med) async {
     try {
-      final ids = List.generate(med.times.length, (i) => _reminderId(med.id, i));
+      final ids =
+          List.generate(med.times.length, (i) => _reminderId(med.id, i));
       await NotificationService.cancelMedicineReminders(ids);
     } catch (e) {
       print('Error canceling reminders for ${med.medicineName}: $e');
@@ -1203,12 +1275,13 @@ class AppState extends ChangeNotifier {
 
   Future<void> _restoreSession() async {
     try {
-      final firebaseUid = FirebaseService.currentUid;
-      if (firebaseUid != null) {
-        final firebaseUser = await _loadUserProfile(firebaseUid);
-        if (firebaseUser != null) {
-          _currentUser = firebaseUser;
-          _selectedLanguage = firebaseUser.language;
+      // First, check if Firebase Auth has an active session
+      final firebaseUser = FirebaseAuth.instance.currentUser;
+      if (firebaseUser != null && firebaseUser.uid.isNotEmpty) {
+        final profile = await _loadUserProfile(firebaseUser.uid);
+        if (profile != null) {
+          _currentUser = profile;
+          _selectedLanguage = profile.language;
           await _saveSessionUid();
           await _saveCurrentUser();
           await _syncRoleContext();
@@ -1220,6 +1293,7 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      // Fallback: check local storage for last logged-in user
       final prefs = await SharedPreferences.getInstance();
       _crisisModeEnabled = prefs.getBool(_crisisModeKey) ?? false;
       final uid = prefs.getString(_currentUidKey);
@@ -1236,7 +1310,7 @@ class AppState extends ChangeNotifier {
       await _loadAppointments();
       notifyListeners();
     } catch (e) {
-      print('Error restoring session: $e');
+      debugPrint('Error restoring session: $e');
     }
   }
 
@@ -1245,60 +1319,64 @@ class AppState extends ChangeNotifier {
 
     _isSyncingRoleContext = true;
     try {
-    final user = _currentUser;
-    if (user == null) return;
+      final user = _currentUser;
+      if (user == null) return;
 
-    if (user.isPatient) {
-      _guardianLinkSyncTimer?.cancel();
-      _guardianLinkSyncTimer = null;
-      _linkedPatientId = null;
-      _linkedPatientProfile = null;
-      _guardianPermissions = {
-        'viewDocuments': true,
-        'viewMedicines': true,
-        'receiveEmergencyAlerts': true,
-        'manageMedicines': false,
-      };
-      await refreshPendingPairingRequests();
-      await refreshLinkedGuardians();
+      if (user.isPatient) {
+        _guardianLinkSyncTimer?.cancel();
+        _guardianLinkSyncTimer = null;
+        _linkedPatientId = null;
+        _linkedPatientProfile = null;
+        _guardianPermissions = {
+          'viewDocuments': true,
+          'viewMedicines': true,
+          'receiveEmergencyAlerts': true,
+          'manageMedicines': false,
+        };
+        await refreshPendingPairingRequests();
+        await refreshLinkedGuardians();
+        await refreshLiveLocationSnapshot();
+        await refreshGuardianEmergencyResponses();
+        _configureGuardianLiveLocationPolling();
+        return;
+      }
+
+      _activePairingCode = null;
+      _pendingPairingRequests = [];
+      _linkedPatientId =
+          await FirebaseService.loadLinkedPatientIdForGuardian(user.uid);
+      if (_linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
+        _linkedPatientProfile =
+            await FirebaseService.loadUserProfile(_linkedPatientId!);
+        final link =
+            await FirebaseService.loadActiveCareLinkForGuardian(user.uid);
+        final rawPermissions = link?['permissions'];
+        if (rawPermissions is Map<String, dynamic>) {
+          _guardianPermissions = {
+            'viewDocuments': rawPermissions['viewDocuments'] == true,
+            'viewMedicines': rawPermissions['viewMedicines'] == true,
+            'receiveEmergencyAlerts':
+                rawPermissions['receiveEmergencyAlerts'] == true,
+            'manageMedicines': rawPermissions['manageMedicines'] == true,
+          };
+        }
+      } else {
+        _linkedPatientProfile = null;
+        _documents = [];
+        _medicines = [];
+        _liveLocationSnapshot = null;
+        _guardianPermissions = {
+          'viewDocuments': false,
+          'viewMedicines': false,
+          'receiveEmergencyAlerts': false,
+          'manageMedicines': false,
+        };
+      }
+
       await refreshLiveLocationSnapshot();
       await refreshGuardianEmergencyResponses();
       _configureGuardianLiveLocationPolling();
-      return;
-    }
-
-    _activePairingCode = null;
-    _pendingPairingRequests = [];
-    _linkedPatientId = await FirebaseService.loadLinkedPatientIdForGuardian(user.uid);
-    if (_linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
-      _linkedPatientProfile = await FirebaseService.loadUserProfile(_linkedPatientId!);
-      final link = await FirebaseService.loadActiveCareLinkForGuardian(user.uid);
-      final rawPermissions = link?['permissions'];
-      if (rawPermissions is Map<String, dynamic>) {
-        _guardianPermissions = {
-          'viewDocuments': rawPermissions['viewDocuments'] == true,
-          'viewMedicines': rawPermissions['viewMedicines'] == true,
-          'receiveEmergencyAlerts': rawPermissions['receiveEmergencyAlerts'] == true,
-          'manageMedicines': rawPermissions['manageMedicines'] == true,
-        };
-      }
-    } else {
-      _linkedPatientProfile = null;
-      _documents = [];
-      _medicines = [];
-      _liveLocationSnapshot = null;
-      _guardianPermissions = {
-        'viewDocuments': false,
-        'viewMedicines': false,
-        'receiveEmergencyAlerts': false,
-        'manageMedicines': false,
-      };
-    }
-
-    await refreshLiveLocationSnapshot();
-    await refreshGuardianEmergencyResponses();
-    _configureGuardianLiveLocationPolling();
-    _configureGuardianLinkSync();
+      _configureGuardianLinkSync();
     } finally {
       _isSyncingRoleContext = false;
     }
@@ -1326,32 +1404,34 @@ class AppState extends ChangeNotifier {
 
     if (!isGuardian) return;
 
-    _guardianLinkSyncTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
+    _guardianLinkSyncTimer =
+        Timer.periodic(const Duration(seconds: 10), (_) async {
       if (_isGuardianLinkSyncRunning) return;
       _isGuardianLinkSyncRunning = true;
       try {
-      if (!isGuardian) {
-        _guardianLinkSyncTimer?.cancel();
-        _guardianLinkSyncTimer = null;
-        _isGuardianLinkSyncRunning = false;
-        return;
-      }
+        if (!isGuardian) {
+          _guardianLinkSyncTimer?.cancel();
+          _guardianLinkSyncTimer = null;
+          _isGuardianLinkSyncRunning = false;
+          return;
+        }
 
-      final user = _currentUser;
-      if (user == null) return;
+        final user = _currentUser;
+        if (user == null) return;
 
-      final linked = await FirebaseService.loadLinkedPatientIdForGuardian(user.uid);
-      if (linked != null && linked.isNotEmpty && linked != _linkedPatientId) {
-        await _syncRoleContext();
-        await _loadDocuments();
-        await _loadMedicines();
-        notifyListeners();
-      }
+        final linked =
+            await FirebaseService.loadLinkedPatientIdForGuardian(user.uid);
+        if (linked != null && linked.isNotEmpty && linked != _linkedPatientId) {
+          await _syncRoleContext();
+          await _loadDocuments();
+          await _loadMedicines();
+          notifyListeners();
+        }
 
-      if (_linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
-        _guardianLinkSyncTimer?.cancel();
-        _guardianLinkSyncTimer = null;
-      }
+        if (_linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
+          _guardianLinkSyncTimer?.cancel();
+          _guardianLinkSyncTimer = null;
+        }
       } finally {
         _isGuardianLinkSyncRunning = false;
       }
@@ -1369,7 +1449,8 @@ class AppState extends ChangeNotifier {
 
   Future<String?> requestPatientLink(String code) async {
     final user = _currentUser;
-    if (user == null || !user.isGuardian) return 'Only guardian accounts can request pairing.';
+    if (user == null || !user.isGuardian)
+      return 'Only guardian accounts can request pairing.';
     _error = null;
     final error = await FirebaseService.submitPairingRequest(code);
     if (error == null) {
@@ -1391,7 +1472,8 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    _pendingPairingRequests = await FirebaseService.loadPendingPairingRequests(user.uid);
+    _pendingPairingRequests =
+        await FirebaseService.loadPendingPairingRequests(user.uid);
     notifyListeners();
   }
 
@@ -1537,11 +1619,5 @@ class AppState extends ChangeNotifier {
     await refreshGuardianEmergencyResponses();
     await refreshReliabilityStatus();
     notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _cancelAllBackgroundTimers();
-    super.dispose();
   }
 }
