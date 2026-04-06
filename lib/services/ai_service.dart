@@ -9,6 +9,8 @@ import '../utils/app_theme.dart';
 class AIService {
   static const String _fallbackDayKey = 'ai_cloud_fallback_day';
   static const String _fallbackCountKey = 'ai_cloud_fallback_count';
+  static const int _maxRetries = 3;
+  static const int _baseRetryDelayMs = 1000;
 
   static String _lastProvider = 'none';
   static String _lastRouteNote = 'Not started';
@@ -188,21 +190,32 @@ Examples:
       return 'Cloud fallback limit reached for today. Please restore tunnel connectivity.';
     }
 
-    try {
-      final response = await _callCloudProvider(apiKey: apiKey, prompt: prompt)
-          .timeout(const Duration(seconds: 30));
-      await _incrementCloudFallbackCount();
-      _lastProvider = 'cloud';
-      _lastRouteNote = 'Running in cloud fallback mode';
-      return response;
-    } on SocketException {
-      return 'No internet connection.';
-    } on TimeoutException {
-      return 'Request timed out. Please try again.';
-    } catch (e) {
-      print('Error: $e');
-      return 'Error: $e';
+    // Retry with exponential backoff for rate limiting
+    for (int attempt = 0; attempt < _maxRetries; attempt++) {
+      try {
+        final response =
+            await _callCloudProvider(apiKey: apiKey, prompt: prompt)
+                .timeout(const Duration(seconds: 30));
+        await _incrementCloudFallbackCount();
+        _lastProvider = 'cloud';
+        _lastRouteNote = 'Running in cloud fallback mode';
+        return response;
+      } on SocketException {
+        return 'No internet connection.';
+      } on TimeoutException {
+        return 'Request timed out. Please try again.';
+      } catch (e) {
+        final errorMsg = e.toString();
+        if (errorMsg.contains('RATE_LIMITED') && attempt < _maxRetries - 1) {
+          // Exponential backoff: 1s, 2s, 4s
+          final delayMs = _baseRetryDelayMs * (1 << attempt);
+          await Future.delayed(Duration(milliseconds: delayMs));
+          continue; // retry
+        }
+        debugPrint('AI Error: $e');
+      }
     }
+    return 'Service temporarily busy. Please try again in a moment.';
   }
 
   static Future<String> _callTunnelProvider({
@@ -301,7 +314,7 @@ Examples:
           'Invalid API key. Please check your Gemini API key in settings.');
     }
     if (response.statusCode == 429) {
-      throw Exception('Too many requests. Please wait and try again.');
+      throw Exception('RATE_LIMITED: Too many requests. Retrying...');
     }
 
     throw Exception(

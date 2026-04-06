@@ -33,7 +33,9 @@ class LocalizationService {
   }
 
   String t(String key) {
-    return _translations[_currentLanguage]?[key] ?? _translations['en']?[key] ?? key;
+    return _translations[_currentLanguage]?[key] ??
+        _translations['en']?[key] ??
+        key;
   }
 
   void _initializeTranslations() {
@@ -101,7 +103,8 @@ class LocalizationService {
         'cancel': 'Cancel',
         'voice_command': 'Voice Command',
         'microphone': 'Microphone',
-        'mic_permission_denied': 'Microphone permission denied. Please enable in settings.',
+        'mic_permission_denied':
+            'Microphone permission denied. Please enable in settings.',
         'voice_not_available': 'Voice not available on this device',
 
         // Chat
@@ -215,7 +218,8 @@ class LocalizationService {
         'cancel': 'रद्द करें',
         'voice_command': 'वॉइस कमांड',
         'microphone': 'माइक्रोफोन',
-        'mic_permission_denied': 'माइक्रोफोन अनुमति अस्वीकृत। कृपया सेटिंग्स में सक्षम करें।',
+        'mic_permission_denied':
+            'माइक्रोफोन अनुमति अस्वीकृत। कृपया सेटिंग्स में सक्षम करें।',
         'voice_not_available': 'इस डिवाइस पर वॉइस उपलब्ध नहीं',
 
         // Chat

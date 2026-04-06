@@ -23,7 +23,7 @@ void main() async {
   await FirebaseService.init();
   MedicineAutofillService.unawaitedSafeInit();
   await NotificationService.init();
-  
+
   // Initialize localization
   await localization.initialize();
 

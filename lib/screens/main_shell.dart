@@ -71,7 +71,8 @@ class _MainShellState extends State<MainShell> {
           // Show error message with suggestion
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(result.reason),
+              content: Text(
+                  result.reason ?? 'Command not understood. Please try again.'),
               backgroundColor: Colors.orange.shade700,
               duration: const Duration(seconds: 3),
             ),
@@ -167,6 +168,16 @@ class _MainShellState extends State<MainShell> {
         );
         break;
     }
+
+    // Auto-resume listening for continuous voice interaction
+    if (_voiceService.isInitialized &&
+        _voiceService.currentState == VoiceState.idle) {
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (mounted && _voiceService.currentState == VoiceState.idle) {
+          _voiceService.startListening();
+        }
+      });
+    }
   }
 
   /// Show confirmation dialog for high-risk actions
@@ -175,7 +186,7 @@ class _MainShellState extends State<MainShell> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirm Action'),
-        content: Text(result.reason),
+        content: Text(result.reason ?? 'Please confirm this action'),
         actions: [
           TextButton(
             onPressed: () {
@@ -301,7 +312,7 @@ class _MainShellState extends State<MainShell> {
         ],
       ),
       floatingActionButton: _buildVoiceFAB(),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -356,7 +367,7 @@ class _MainShellState extends State<MainShell> {
     final isProcessing = _voiceService.currentState != VoiceState.idle &&
         _voiceService.currentState != VoiceState.listening;
 
-    return FloatingActionButton(
+    return FloatingActionButton.extended(
       onPressed: _handleVoiceInput,
       tooltip: 'Voice Command',
       backgroundColor: isListening
@@ -364,10 +375,22 @@ class _MainShellState extends State<MainShell> {
           : isProcessing
               ? Colors.orange.shade600
               : AppTheme.primary,
-      child: Icon(
+      icon: Icon(
         isListening ? Icons.mic : Icons.mic_none,
         color: Colors.white,
         size: 28,
+      ),
+      label: Text(
+        isListening
+            ? 'Listening...'
+            : isProcessing
+                ? 'Processing...'
+                : 'Voice',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+        ),
       ),
     );
   }
@@ -375,7 +398,7 @@ class _MainShellState extends State<MainShell> {
   Widget _buildVoiceIndicator() {
     final state = _voiceService.currentState;
     final transcript = _voiceService.activeSession?.transcript ?? '';
-    
+
     String message;
     Color bgColor;
     IconData icon;
@@ -407,7 +430,8 @@ class _MainShellState extends State<MainShell> {
         icon = Icons.volume_up;
         break;
       case VoiceState.error:
-        message = '❌ ${_voiceService.activeSession?.errorMessage ?? 'Error occurred. Please try again.'}';
+        message =
+            '❌ ${_voiceService.activeSession?.errorMessage ?? 'Error occurred. Please try again.'}';
         bgColor = Colors.red.shade900;
         icon = Icons.error_outline;
         break;

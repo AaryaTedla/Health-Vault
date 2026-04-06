@@ -3,12 +3,16 @@ import 'package:flutter/foundation.dart';
 /// Accessibility Service for screen readers and voice navigation
 /// Provides semantic labels and descriptions for all UI elements
 class AccessibilityService {
-  static const String voiceButtonLabel = 'Voice command button. Tap to start listening.';
+  static const String voiceButtonLabel =
+      'Voice command button. Tap to start listening.';
   static const String homeTabLabel = 'Home tab. Shows your health dashboard.';
-  static const String recordsTabLabel = 'Records tab. Manage your medical documents.';
-  static const String medicinesTabLabel = 'Medicines tab. View and manage your medicines.';
+  static const String recordsTabLabel =
+      'Records tab. Manage your medical documents.';
+  static const String medicinesTabLabel =
+      'Medicines tab. View and manage your medicines.';
   static const String chatTabLabel = 'AI Chat tab. Talk to health assistant.';
-  static const String profileTabLabel = 'Profile tab. Manage your account settings.';
+  static const String profileTabLabel =
+      'Profile tab. Manage your account settings.';
 
   static String medicineItemLabel(String name, String dosage) =>
       '$name, $dosage. Double tap to view details.';
@@ -25,9 +29,11 @@ class AccessibilityService {
   static const String listeningIndicatorLabel =
       'Voice listening indicator. Your device is listening for commands.';
 
-  static const String confirmButtonLabel = 'Confirm button. Tap to confirm your voice command.';
+  static const String confirmButtonLabel =
+      'Confirm button. Tap to confirm your voice command.';
 
-  static const String cancelButtonLabel = 'Cancel button. Tap to cancel voice command.';
+  static const String cancelButtonLabel =
+      'Cancel button. Tap to cancel voice command.';
 
   static String navigationButtonLabel(String screen) =>
       'Navigate to $screen. Double tap to go to $screen.';
@@ -44,9 +50,11 @@ class AccessibilityService {
   static String listItemLabel(String title, int index, int total) =>
       '$title. Item $index of $total. Double tap for details.';
 
-  static String buttonLabel(String text) => '$text button. Double tap to activate.';
+  static String buttonLabel(String text) =>
+      '$text button. Double tap to activate.';
 
-  static const String backButtonLabel = 'Back button. Tap to go back to previous screen.';
+  static const String backButtonLabel =
+      'Back button. Tap to go back to previous screen.';
 
   static String searchFieldLabel(String hint) =>
       'Search field. Hint: $hint. Type to search.';
@@ -85,7 +93,8 @@ class a11y {
       AccessibilityService.listItemLabel(title, index, total);
 
   /// Create accessible navigation
-  static String nav(String screen) => AccessibilityService.navigationButtonLabel(screen);
+  static String nav(String screen) =>
+      AccessibilityService.navigationButtonLabel(screen);
 
   /// Get voice command suggestions
   static String voiceHelp() => AccessibilityService.voiceCommandHelp();

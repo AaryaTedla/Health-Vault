@@ -90,7 +90,7 @@ class VoiceAgentService extends ChangeNotifier {
     _textToSpeech.setVolume(1.0);
     _textToSpeech.setSpeechRate(0.75); // Natural pace (0.5-1.0, lower = slower)
     _textToSpeech.setPitch(0.95); // Slightly lower pitch for warmth
-    
+
     // Set language-specific voice settings for natural speech
     if (defaultTargetPlatform == TargetPlatform.android) {
       // Use best available voice for language
