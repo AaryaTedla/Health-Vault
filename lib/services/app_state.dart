@@ -708,6 +708,11 @@ class AppState extends ChangeNotifier {
 
   void setLanguage(String language) {
     _selectedLanguage = language;
+    
+    // Update localization service
+    final localizationCode = language == 'Hindi' ? 'hi' : 'en';
+    localization.setLanguage(localizationCode);
+    
     if (_currentUser != null) {
       final user = _currentUser!;
       _currentUser = AppUser(

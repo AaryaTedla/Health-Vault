@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_tts/flutter_tts.dart';
 import '../services/app_state.dart';
 import '../services/ai_service.dart';
+import '../services/voice_agent_service.dart';
+import '../services/localization_service.dart';
 import '../utils/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/shared_widgets.dart';
@@ -17,6 +20,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
   final _focusNode = FocusNode();
+  late FlutterTts _tts;
   bool _isSending = false;
   bool _isInputFocused = false;
   String _aiRouteNote = 'Ready';
@@ -51,6 +55,13 @@ class _AIChatScreenState extends State<AIChatScreen> {
   void initState() {
     super.initState();
     _focusNode.addListener(_onInputFocusChanged);
+    _initTTS();
+  }
+
+  void _initTTS() {
+    _tts = FlutterTts();
+    _tts.setSpeechRate(0.75); // Natural pace for elderly
+    _tts.setPitch(0.95); // Warm, friendly tone
   }
 
   @override
@@ -59,6 +70,7 @@ class _AIChatScreenState extends State<AIChatScreen> {
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     _focusNode.dispose();
+    _tts.stop();
     super.dispose();
   }
 
@@ -319,6 +331,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
           _isSending = false;
         });
         _scrollToBottom();
+        // Speak the response
+        _speakResponse(response);
       }
     } catch (e) {
       if (mounted) {
@@ -334,6 +348,17 @@ class _AIChatScreenState extends State<AIChatScreen> {
           _isSending = false;
         });
       }
+    }
+  }
+
+  /// Speak the AI response using text-to-speech
+  Future<void> _speakResponse(String text) async {
+    try {
+      // Extract just the message part (remove technical sections)
+      final lines = text.split('\n').where((l) => l.trim().isNotEmpty).take(5).join(' ');
+      await _tts.speak(lines);
+    } catch (e) {
+      debugPrint('TTS error: $e');
     }
   }
 

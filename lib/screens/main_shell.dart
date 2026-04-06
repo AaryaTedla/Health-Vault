@@ -311,8 +311,6 @@ class _MainShellState extends State<MainShell> {
             ),
         ],
       ),
-      floatingActionButton: _buildVoiceFAB(),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -321,39 +319,104 @@ class _MainShellState extends State<MainShell> {
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _NavItem(
-                    icon: Icons.home_rounded,
-                    label: isGuardian ? 'Guardian' : 'Home',
-                    index: 0,
-                    current: _currentIndex,
-                    onTap: _setTab),
-                _NavItem(
-                    icon: Icons.folder_rounded,
-                    label: 'Records',
-                    index: 1,
-                    current: _currentIndex,
-                    onTap: _setTab),
-                _NavItem(
-                    icon: Icons.medication_rounded,
-                    label: 'Medicines',
-                    index: 2,
-                    current: _currentIndex,
-                    onTap: _setTab),
-                _NavItem(
-                    icon: Icons.smart_toy_rounded,
-                    label: 'AI Chat',
-                    index: 3,
-                    current: _currentIndex,
-                    onTap: _setTab),
-                _NavItem(
-                    icon: Icons.person_rounded,
-                    label: 'Profile',
-                    index: 4,
-                    current: _currentIndex,
-                    onTap: _setTab),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _NavItem(
+                        icon: Icons.home_rounded,
+                        label: isGuardian ? 'Guardian' : 'Home',
+                        index: 0,
+                        current: _currentIndex,
+                        onTap: _setTab),
+                    _NavItem(
+                        icon: Icons.folder_rounded,
+                        label: 'Records',
+                        index: 1,
+                        current: _currentIndex,
+                        onTap: _setTab),
+                    _NavItem(
+                        icon: Icons.medication_rounded,
+                        label: 'Medicines',
+                        index: 2,
+                        current: _currentIndex,
+                        onTap: _setTab),
+                    _NavItem(
+                        icon: Icons.smart_toy_rounded,
+                        label: 'AI Chat',
+                        index: 3,
+                        current: _currentIndex,
+                        onTap: _setTab),
+                    _NavItem(
+                        icon: Icons.person_rounded,
+                        label: 'Profile',
+                        index: 4,
+                        current: _currentIndex,
+                        onTap: _setTab),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                // Voice button bar
+                Container(
+                  height: 48,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: const BorderRadius.only(
+                      topLeft: Radius.circular(12),
+                      topRight: Radius.circular(12),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const SizedBox(width: 16),
+                      Icon(
+                        Icons.record_voice_over_rounded,
+                        size: 20,
+                        color: AppTheme.textSecondary,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: GestureDetector(
+                          onTap: _handleVoiceInput,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: _voiceService.currentState ==
+                                      VoiceState.listening
+                                  ? Colors.red.shade50
+                                  : Colors.white,
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: _voiceService.currentState ==
+                                        VoiceState.listening
+                                    ? Colors.red.shade400
+                                    : AppTheme.divider,
+                              ),
+                            ),
+                            child: Text(
+                              _voiceService.currentState == VoiceState.listening
+                                  ? 'Tap to stop listening...'
+                                  : 'Tap to use voice command',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _voiceService.currentState ==
+                                        VoiceState.listening
+                                    ? Colors.red.shade700
+                                    : AppTheme.textSecondary,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
