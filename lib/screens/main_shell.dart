@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../services/app_state.dart';
+import '../services/voice_agent_service.dart';
+import '../services/voice_intent_router.dart';
 import '../models/models.dart';
 import '../utils/app_theme.dart';
 import 'dashboard_screen.dart';
@@ -17,6 +19,154 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell> {
   int _currentIndex = 0;
+  late VoiceAgentService _voiceService;
+  VoiceIntentRouter? _voiceRouter;
+  VoiceIntentResult? _pendingConfirmation;
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeVoice();
+  }
+
+  Future<void> _initializeVoice() async {
+    _voiceService = VoiceAgentService();
+    await _voiceService.initialize();
+
+    // Initialize voice intent router with AppState
+    _voiceRouter = VoiceIntentRouter(appState: context.read<AppState>());
+
+    // Process voice commands and execute them
+    _voiceService.onTranscript = (transcript, confidence) async {
+      if (!mounted) return;
+
+      try {
+        // Process command through AI router
+        final result = await _voiceRouter!.processVoiceCommand(
+          transcript: transcript,
+          language: _voiceService.currentLanguage,
+          confidence: confidence,
+        );
+
+        // Execute the intent
+        if (result.isConfident) {
+          await _executeVoiceIntent(result);
+        }
+      } catch (e) {
+        _showFeedback('Error: ${e.toString()}');
+      }
+    };
+
+    _voiceService.onError = (error) {
+      _showFeedback('Voice error: $error');
+    };
+
+    _voiceService.onStateChanged = () {
+      if (mounted) setState(() {});
+    };
+  }
+
+  Future<void> _executeVoiceIntent(VoiceIntentResult result) async {
+    try {
+      if (result.needsConfirmation) {
+        _showConfirmationDialog(result);
+      } else {
+        _performAction(result);
+      }
+    } catch (e) {
+      _showFeedback('Could not execute command: ${e.toString()}');
+    }
+  }
+
+  void _performAction(VoiceIntentResult result) {
+    final actions = {
+      'navigate_home': () => _setTab(0),
+      'navigate_documents': () => _setTab(1),
+      'navigate_medicines': () => _setTab(2),
+      'navigate_ai': () => _setTab(3),
+      'navigate_profile': () => _setTab(4),
+      'emergency_alert': () => _showEmergencyDialog(),
+    };
+
+    final action = actions[result.action];
+    if (action != null) {
+      action();
+      _voiceService.resume();
+    }
+  }
+
+  void _showConfirmationDialog(VoiceIntentResult result) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Confirm Voice Command'),
+        content: Text('Do you want to ${result.description}?'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _voiceService.resume();
+            },
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _performAction(result);
+            },
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showEmergencyDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Emergency Alert'),
+        content: const Text('Send emergency alert to your guardians?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              context.read<AppState>().triggerEmergencyAlert();
+              _showFeedback('Emergency alert sent!');
+              _voiceService.resume();
+            },
+            child: const Text('Send Alert'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showFeedback(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message), duration: const Duration(seconds: 2)),
+    );
+  }
+
+  void _handleVoiceInput() {
+    if (_voiceService.isListening) {
+      _voiceService.stop();
+    } else {
+      _voiceService.startListening();
+    }
+    setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _voiceService.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +188,38 @@ class _MainShellState extends State<MainShell> {
           ];
 
     return Scaffold(
-      body: IndexedStack(index: _currentIndex, children: screens),
+      body: Stack(
+        children: [
+          IndexedStack(index: _currentIndex, children: screens),
+          if (_voiceService.isListening)
+            Positioned(
+              top: 50,
+              left: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade400,
+                  borderRadius: BorderRadius.circular(8),
+                  boxShadow: const [BoxShadow(blurRadius: 8, color: Colors.black26)],
+                ),
+                child: Row(
+                  children: [
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation(Colors.white)),
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text('🎤 Listening...', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Colors.white,
@@ -47,14 +228,53 @@ class _MainShellState extends State<MainShell> {
         child: SafeArea(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                _NavItem(icon: Icons.home_rounded, label: isGuardian ? 'Guardian' : 'Home', index: 0, current: _currentIndex, onTap: _setTab),
-                _NavItem(icon: Icons.folder_rounded, label: 'Records', index: 1, current: _currentIndex, onTap: _setTab),
-                _NavItem(icon: Icons.medication_rounded, label: 'Medicines', index: 2, current: _currentIndex, onTap: _setTab),
-                _NavItem(icon: Icons.smart_toy_rounded, label: 'AI Chat', index: 3, current: _currentIndex, onTap: _setTab),
-                _NavItem(icon: Icons.person_rounded, label: 'Profile', index: 4, current: _currentIndex, onTap: _setTab),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _NavItem(icon: Icons.home_rounded, label: isGuardian ? 'Guardian' : 'Home', index: 0, current: _currentIndex, onTap: _setTab),
+                    _NavItem(icon: Icons.folder_rounded, label: 'Records', index: 1, current: _currentIndex, onTap: _setTab),
+                    _NavItem(icon: Icons.medication_rounded, label: 'Medicines', index: 2, current: _currentIndex, onTap: _setTab),
+                    _NavItem(icon: Icons.smart_toy_rounded, label: 'AI Chat', index: 3, current: _currentIndex, onTap: _setTab),
+                    _NavItem(icon: Icons.person_rounded, label: 'Profile', index: 4, current: _currentIndex, onTap: _setTab),
+                  ],
+                ),
+                const Divider(height: 8, thickness: 0.5),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        _voiceService.isListening ? Icons.mic : Icons.mic_none,
+                        size: 16,
+                        color: _voiceService.isListening ? Colors.red : Colors.grey,
+                      ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: _handleVoiceInput,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: _voiceService.isListening ? Colors.red.shade100 : AppTheme.surface,
+                            border: Border.all(color: _voiceService.isListening ? Colors.red : AppTheme.divider),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            _voiceService.isListening ? 'Tap to stop' : 'Tap to speak',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: _voiceService.isListening ? Colors.red : Colors.grey.shade600,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
           ),
@@ -113,7 +333,9 @@ class _ProfileScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppTheme.surface,
-      body: CustomScrollView(
+      body: Stack(
+        children: [
+          CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
             child: Container(
