@@ -6,6 +6,7 @@ import 'services/app_state.dart';
 import 'services/firebase_service.dart';
 import 'services/medicine_autofill_service.dart';
 import 'services/notification_service.dart';
+import 'services/localization_service.dart';
 import 'utils/app_theme.dart';
 import 'screens/auth_screens.dart';
 import 'screens/main_shell.dart';
@@ -21,8 +22,10 @@ void main() async {
 
   await FirebaseService.init();
   MedicineAutofillService.unawaitedSafeInit();
-
   await NotificationService.init();
+
+  // Initialize localization
+  await localization.initialize();
 
   await SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,

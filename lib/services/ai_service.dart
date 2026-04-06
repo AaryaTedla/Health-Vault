@@ -1,10 +1,21 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_theme.dart';
 
 class AIService {
+  static const String _fallbackDayKey = 'ai_cloud_fallback_day';
+  static const String _fallbackCountKey = 'ai_cloud_fallback_count';
+  static const int _maxRetries = 3;
+  static const int _baseRetryDelayMs = 1000;
+
+  static String _lastProvider = 'none';
+  static String _lastRouteNote = 'Not started';
+  static String get lastProvider => _lastProvider;
+  static String get lastRouteNote => _lastRouteNote;
 
   static Future<String> generateDocumentSummary({
     required String documentText,
@@ -13,8 +24,8 @@ class AIService {
     required String patientName,
   }) async {
     final langInstruction = language == 'English'
-      ? 'Respond only in simple English.'
-      : 'Respond only in $language language with very simple words an elderly person can understand.';
+        ? 'Respond only in simple English.'
+        : 'Respond only in $language language with very simple words an elderly person can understand.';
     final prompt = """
 You are a kind medical assistant helping elderly patients understand their health documents.
 Patient Name: $patientName
@@ -37,10 +48,11 @@ Keep total under 250 words.
     required List<String> conditions,
     required List<String> conversationHistory,
   }) async {
-    final condText = conditions.isEmpty ? 'None mentioned' : conditions.join(', ');
+    final condText =
+        conditions.isEmpty ? 'None mentioned' : conditions.join(', ');
     final historyText = conversationHistory.length > 6
-      ? conversationHistory.sublist(conversationHistory.length - 6).join('\n')
-      : conversationHistory.join('\n');
+        ? conversationHistory.sublist(conversationHistory.length - 6).join('\n')
+        : conversationHistory.join('\n');
     final prompt = """
 You are HealthVault, a warm caring health companion for elderly patients in India.
 Patient Name: $patientName
@@ -77,57 +89,351 @@ End with: "${AppConstants.chatDisclaimer}"
     return _callAI(prompt);
   }
 
-  static Future<String> _callAI(String prompt) async {
-    final apiKey = AppConstants.geminiApiKey;
+  /// Understand natural language voice command using AI
+  /// Returns JSON with intent and action (e.g., { "intent": "navigate", "action": "medicines", "understood": true })
+  static Future<Map<String, dynamic>> understandVoiceCommand({
+    required String transcript,
+    required String language,
+  }) async {
+    final langContext = language == 'hi'
+        ? 'The user may speak Hindi or English. Respond in English JSON.'
+        : 'Respond in English JSON.';
 
-    if (apiKey.trim().isEmpty) {
-      return 'Please add your API key in app_theme.dart';
-    }
+    final prompt = """
+Parse this voice command: "$transcript"
+$langContext
+
+Return ONLY valid JSON (no markdown, no text before/after):
+{
+  "understood": true/false,
+  "intent": "navigate|medicine|appointment|document|emergency|chat|profile|unknown",
+  "action": "medicines|appointments|documents|chat|profile|home|emergency",
+  "confidence": 0.0-1.0,
+  "clarification": "If not understood, suggest what user might want"
+}
+
+Examples:
+- "show my medicines" → {"understood": true, "intent": "navigate", "action": "medicines", "confidence": 0.95}
+- "दवाई दिखाओ" → {"understood": true, "intent": "navigate", "action": "medicines", "confidence": 0.95}
+- "help" → {"understood": false, "intent": "unknown", "action": "", "confidence": 0.3, "clarification": "I can help you view medicines, appointments, documents, or chat with me. What would you like?"}
+- "blah blah blah" → {"understood": false, "intent": "unknown", "action": "", "confidence": 0.1, "clarification": "I didn't understand that. Could you ask me about medicines, appointments, or documents?"}
+""";
 
     try {
-      final response = await http.post(
-        Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer $apiKey',
-          'HTTP-Referer': 'https://healthvault.app',
-          'X-Title': 'HealthVault',
-        },
-        body: jsonEncode({
-          'model': 'google/gemma-3-4b-it:free',
-          'messages': [
-            {'role': 'user', 'content': prompt}
-          ],
-          'max_tokens': 500,
-        }),
-      ).timeout(const Duration(seconds: 30));
+      final response = await _callAI(prompt);
 
-      print('=== AI DEBUG ===');
-      print('Status: ${response.statusCode}');
-      print('Body: ${response.body}');
+      // Try to parse as JSON - handle various edge cases
+      String jsonStr = response.trim();
+
+      // Remove markdown code blocks if present
+      if (jsonStr.startsWith('```')) {
+        jsonStr =
+            jsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
+      }
+
+      final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+      return {
+        'understood': data['understood'] ?? false,
+        'intent': data['intent'] ?? 'unknown',
+        'action': data['action'] ?? '',
+        'confidence': (data['confidence'] ?? 0.0).toDouble(),
+        'clarification': data['clarification'] ??
+            'I didn\'t understand that. Could you try again?',
+      };
+    } catch (e) {
+      debugPrint('Voice intent parsing error: $e');
+      return {
+        'understood': false,
+        'intent': 'unknown',
+        'action': '',
+        'confidence': 0.0,
+        'clarification':
+            'Sorry, I had trouble understanding. Please try again.',
+      };
+    }
+  }
+
+  static Future<String> _callAI(String prompt) async {
+    _lastProvider = 'none';
+    _lastRouteNote = 'Routing request...';
+
+    final tunnelBaseUrl = AppConstants.tunnelBaseUrl.trim();
+    final tunnelToken = AppConstants.tunnelAuthToken.trim();
+    if (tunnelBaseUrl.isNotEmpty) {
+      try {
+        final text = await _callTunnelProvider(
+          baseUrl: tunnelBaseUrl,
+          authToken: tunnelToken,
+          prompt: prompt,
+        ).timeout(const Duration(seconds: 25));
+        _lastProvider = 'tunnel';
+        _lastRouteNote = 'Connected to local AI tunnel';
+        return text;
+      } on SocketException {
+        _lastRouteNote =
+            'Tunnel unavailable due to network error. Trying cloud fallback.';
+      } on TimeoutException {
+        _lastRouteNote = 'Tunnel timed out. Trying cloud fallback.';
+      } catch (e) {
+        _lastRouteNote = 'Tunnel failed ($e). Trying cloud fallback.';
+      }
+    } else {
+      _lastRouteNote = 'Tunnel not configured. Trying cloud fallback.';
+    }
+
+    final apiKey = AppConstants.geminiApiKey.trim();
+    if (apiKey.isEmpty) {
+      debugPrint('ERROR: Gemini API key is empty! Cannot proceed.');
+      return 'AI service is not configured. Please check your API key in settings.';
+    }
+    debugPrint('✓ Gemini API key is available (${apiKey.substring(0, 10)}...)');
+
+    if (!await _canUseCloudFallback()) {
+      return 'Cloud fallback limit reached for today. Please restore tunnel connectivity.';
+    }
+
+    // Retry with exponential backoff for rate limiting
+    for (int attempt = 0; attempt < _maxRetries; attempt++) {
+      try {
+        final response =
+            await _callCloudProvider(apiKey: apiKey, prompt: prompt)
+                .timeout(const Duration(seconds: 30));
+        await _incrementCloudFallbackCount();
+        _lastProvider = 'cloud';
+        _lastRouteNote = 'Running in cloud fallback mode';
+        return response;
+      } on SocketException {
+        return 'No internet connection.';
+      } on TimeoutException {
+        return 'Request timed out. Please try again.';
+      } catch (e) {
+        final errorMsg = e.toString();
+        if (errorMsg.contains('RATE_LIMITED') && attempt < _maxRetries - 1) {
+          // Exponential backoff: 1s, 2s, 4s
+          final delayMs = _baseRetryDelayMs * (1 << attempt);
+          await Future.delayed(Duration(milliseconds: delayMs));
+          continue; // retry
+        }
+        debugPrint('AI Error: $e');
+      }
+    }
+    return 'Service temporarily busy. Please try again in a moment.';
+  }
+
+  static Future<String> _callTunnelProvider({
+    required String baseUrl,
+    required String authToken,
+    required String prompt,
+  }) async {
+    final normalizedBaseUrl = baseUrl.endsWith('/')
+        ? baseUrl.substring(0, baseUrl.length - 1)
+        : baseUrl;
+
+    final headers = <String, String>{
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+    };
+    if (authToken.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $authToken';
+    }
+
+    final response = await http.post(
+      Uri.parse('$normalizedBaseUrl/v1/chat/completions'),
+      headers: headers,
+      body: jsonEncode({
+        'model': AppConstants.tunnelModel,
+        'messages': [
+          {'role': 'user', 'content': prompt}
+        ],
+        'max_tokens': 500,
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+          'Tunnel API error ${response.statusCode}: ${_safeBody(response.body)}');
+    }
+
+    final data = jsonDecode(response.body) as Map<String, dynamic>;
+    final text = _extractResponseText(data);
+    if (text.isEmpty) {
+      throw Exception('Tunnel response was empty.');
+    }
+    return text;
+  }
+
+  static Future<String> _callCloudProvider({
+    required String apiKey,
+    required String prompt,
+  }) async {
+    debugPrint('📤 Calling Gemini API...');
+    // Use Google Gemini 2.0 Flash API (latest, faster model)
+    try {
+      final response = await http
+          .post(
+            Uri.parse(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey'),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'contents': [
+                {
+                  'parts': [
+                    {'text': prompt}
+                  ]
+                }
+              ],
+              'generationConfig': {
+                'maxOutputTokens': 500,
+                'temperature': 0.7,
+              }
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+
+      debugPrint('📥 Gemini Response: Status ${response.statusCode}');
 
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final text = data['choices']?[0]?['message']?['content'];
-        if (text != null && text.toString().trim().isNotEmpty) {
-          print('AI responded successfully!');
-          return text.toString().trim();
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>?;
+          if (data == null) throw Exception('Response body is null');
+
+          final candidates = data['candidates'] as List?;
+          if (candidates == null || candidates.isEmpty) {
+            debugPrint('⚠️ No candidates in Gemini response');
+            throw Exception('Gemini returned no candidates');
+          }
+
+          final content = candidates[0]['content'] as Map<String, dynamic>?;
+          if (content == null) throw Exception('Content is null');
+
+          final parts = content['parts'] as List?;
+          if (parts == null || parts.isEmpty) {
+            debugPrint('⚠️ No parts in Gemini content');
+            throw Exception('Content has no parts');
+          }
+
+          final text = (parts[0] as Map<String, dynamic>?)?['text'] as String?;
+          if (text == null || text.isEmpty) {
+            debugPrint('⚠️ Gemini text is empty');
+            throw Exception('Gemini response text is empty');
+          }
+
+          debugPrint(
+              '✓ Gemini response successful: ${text.substring(0, 50)}...');
+          return text;
+        } catch (e) {
+          debugPrint(
+              '❌ Error parsing Gemini response: $e\nBody: ${response.body}');
+          throw Exception('Failed to parse Gemini response: $e');
         }
-        return 'Empty response. Please try again.';
-      } else if (response.statusCode == 401) {
-        return 'Invalid API key. Please check your OpenRouter key.';
-      } else if (response.statusCode == 429) {
-        return 'Too many requests. Please wait and try again.';
-      } else {
-        return 'API error ${response.statusCode}: ${response.body}';
       }
-    } on SocketException {
-      return 'No internet connection.';
-    } on TimeoutException {
-      return 'Request timed out. Please try again.';
+
+      if (response.statusCode == 400) {
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>?;
+          final error = data?['error']?['message'] ?? 'Bad request';
+          debugPrint('❌ Gemini Bad Request: $error');
+          throw Exception('API error: $error');
+        } catch (e) {
+          throw Exception('Bad request: ${response.body}');
+        }
+      }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        debugPrint('❌ Gemini Auth Error: Invalid or missing API key');
+        throw Exception(
+            'Invalid API key. Please check your Gemini API key in settings.');
+      }
+      if (response.statusCode == 429) {
+        debugPrint('⚠️ Gemini Rate Limited: Too many requests');
+        throw Exception('RATE_LIMITED: Too many requests. Retrying...');
+      }
+
+      debugPrint(
+          '❌ Gemini API Error: ${response.statusCode}\nBody: ${response.body}');
+      throw Exception(
+          'API error ${response.statusCode}: ${_safeBody(response.body)}');
     } catch (e) {
-      print('Error: $e');
-      return 'Error: $e';
+      debugPrint('❌ Network error calling Gemini: $e');
+      rethrow;
     }
+  }
+
+  static String _extractResponseText(Map<String, dynamic> data) {
+    final fromChoices =
+        data['choices'] is List && (data['choices'] as List).isNotEmpty
+            ? (data['choices'] as List).first
+            : null;
+
+    if (fromChoices is Map<String, dynamic>) {
+      final message = fromChoices['message'];
+      if (message is Map<String, dynamic>) {
+        final content = message['content'];
+        if (content is String && content.trim().isNotEmpty) {
+          return content.trim();
+        }
+      }
+
+      final text = fromChoices['text'];
+      if (text is String && text.trim().isNotEmpty) {
+        return text.trim();
+      }
+    }
+
+    final response = data['response'];
+    if (response is String && response.trim().isNotEmpty) {
+      return response.trim();
+    }
+
+    final text = data['text'];
+    if (text is String && text.trim().isNotEmpty) {
+      return text.trim();
+    }
+
+    return '';
+  }
+
+  static String _safeBody(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.length <= 200) return trimmed;
+    return '${trimmed.substring(0, 200)}...';
+  }
+
+  static String _todayToken() {
+    final now = DateTime.now();
+    final month = now.month.toString().padLeft(2, '0');
+    final day = now.day.toString().padLeft(2, '0');
+    return '${now.year}-$month-$day';
+  }
+
+  static Future<bool> _canUseCloudFallback() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = _todayToken();
+    final storedDay = prefs.getString(_fallbackDayKey);
+
+    if (storedDay != today) {
+      await prefs.setString(_fallbackDayKey, today);
+      await prefs.setInt(_fallbackCountKey, 0);
+      return true;
+    }
+
+    final currentCount = prefs.getInt(_fallbackCountKey) ?? 0;
+    return currentCount < AppConstants.cloudFallbackDailyCap;
+  }
+
+  static Future<void> _incrementCloudFallbackCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final today = _todayToken();
+    final storedDay = prefs.getString(_fallbackDayKey);
+
+    if (storedDay != today) {
+      await prefs.setString(_fallbackDayKey, today);
+      await prefs.setInt(_fallbackCountKey, 1);
+      return;
+    }
+
+    final currentCount = prefs.getInt(_fallbackCountKey) ?? 0;
+    await prefs.setInt(_fallbackCountKey, currentCount + 1);
   }
 }
