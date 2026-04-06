@@ -131,8 +131,18 @@ class AppConstants {
   static const String appName = 'HealthVault';
   static String get geminiApiKey {
     final envKey = dotenv.env['OPENROUTER_API_KEY']?.trim() ?? '';
-    if (envKey.isNotEmpty) return envKey;
-    return const String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
+    if (envKey.isNotEmpty) {
+      debugPrint('✓ Gemini API key loaded from .env');
+      return envKey;
+    }
+    final compileKey =
+        const String.fromEnvironment('OPENROUTER_API_KEY', defaultValue: '');
+    if (compileKey.isNotEmpty) {
+      debugPrint('✓ Gemini API key loaded from compile-time definition');
+      return compileKey;
+    }
+    debugPrint('✗ WARNING: No Gemini API key found! AI will not work.');
+    return '';
   }
 
   static String get tunnelBaseUrl {

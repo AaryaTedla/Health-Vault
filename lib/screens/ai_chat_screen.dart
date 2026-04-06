@@ -355,7 +355,8 @@ class _AIChatScreenState extends State<AIChatScreen> {
   Future<void> _speakResponse(String text) async {
     try {
       // Extract just the message part (remove technical sections)
-      final lines = text.split('\n').where((l) => l.trim().isNotEmpty).take(5).join(' ');
+      final lines =
+          text.split('\n').where((l) => l.trim().isNotEmpty).take(5).join(' ');
       await _tts.speak(lines);
     } catch (e) {
       debugPrint('TTS error: $e');

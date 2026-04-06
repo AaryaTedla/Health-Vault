@@ -183,8 +183,10 @@ Examples:
 
     final apiKey = AppConstants.geminiApiKey.trim();
     if (apiKey.isEmpty) {
-      return 'Local AI tunnel is unavailable and cloud fallback is not configured.';
+      debugPrint('ERROR: Gemini API key is empty! Cannot proceed.');
+      return 'AI service is not configured. Please check your API key in settings.';
     }
+    debugPrint('✓ Gemini API key is available (${apiKey.substring(0, 10)}...)');
 
     if (!await _canUseCloudFallback()) {
       return 'Cloud fallback limit reached for today. Please restore tunnel connectivity.';
@@ -264,61 +266,98 @@ Examples:
     required String apiKey,
     required String prompt,
   }) async {
+    debugPrint('📤 Calling Gemini API...');
     // Use Google Gemini 2.0 Flash API (latest, faster model)
-    final response = await http.post(
-      Uri.parse(
-          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey'),
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'contents': [
-          {
-            'parts': [
-              {'text': prompt}
-            ]
-          }
-        ],
-        'generationConfig': {
-          'maxOutputTokens': 500,
-          'temperature': 0.7,
-        }
-      }),
-    );
+    try {
+      final response = await http
+          .post(
+            Uri.parse(
+                'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey'),
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({
+              'contents': [
+                {
+                  'parts': [
+                    {'text': prompt}
+                  ]
+                }
+              ],
+              'generationConfig': {
+                'maxOutputTokens': 500,
+                'temperature': 0.7,
+              }
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
 
-    if (response.statusCode == 200) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      try {
-        final candidates = data['candidates'] as List?;
-        if (candidates != null && candidates.isNotEmpty) {
-          final content = candidates[0]['content'];
+      debugPrint('📥 Gemini Response: Status ${response.statusCode}');
+
+      if (response.statusCode == 200) {
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>?;
+          if (data == null) throw Exception('Response body is null');
+
+          final candidates = data['candidates'] as List?;
+          if (candidates == null || candidates.isEmpty) {
+            debugPrint('⚠️ No candidates in Gemini response');
+            throw Exception('Gemini returned no candidates');
+          }
+
+          final content = candidates[0]['content'] as Map<String, dynamic>?;
+          if (content == null) throw Exception('Content is null');
+
           final parts = content['parts'] as List?;
-          if (parts != null && parts.isNotEmpty) {
-            final text = parts[0]['text'] as String? ?? '';
-            if (text.isNotEmpty) return text;
+          if (parts == null || parts.isEmpty) {
+            debugPrint('⚠️ No parts in Gemini content');
+            throw Exception('Content has no parts');
           }
+
+          final text = (parts[0] as Map<String, dynamic>?)?['text'] as String?;
+          if (text == null || text.isEmpty) {
+            debugPrint('⚠️ Gemini text is empty');
+            throw Exception('Gemini response text is empty');
+          }
+
+          debugPrint(
+              '✓ Gemini response successful: ${text.substring(0, 50)}...');
+          return text;
+        } catch (e) {
+          debugPrint(
+              '❌ Error parsing Gemini response: $e\nBody: ${response.body}');
+          throw Exception('Failed to parse Gemini response: $e');
         }
-      } catch (e) {
-        debugPrint('Error parsing Gemini response: $e');
       }
-      throw Exception('Gemini response was empty or malformed.');
-    }
 
-    if (response.statusCode == 400) {
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final error = data['error']?['message'] ?? 'Bad request';
-      throw Exception('API error: $error');
-    }
-    if (response.statusCode == 401 || response.statusCode == 403) {
+      if (response.statusCode == 400) {
+        try {
+          final data = jsonDecode(response.body) as Map<String, dynamic>?;
+          final error = data?['error']?['message'] ?? 'Bad request';
+          debugPrint('❌ Gemini Bad Request: $error');
+          throw Exception('API error: $error');
+        } catch (e) {
+          throw Exception('Bad request: ${response.body}');
+        }
+      }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        debugPrint('❌ Gemini Auth Error: Invalid or missing API key');
+        throw Exception(
+            'Invalid API key. Please check your Gemini API key in settings.');
+      }
+      if (response.statusCode == 429) {
+        debugPrint('⚠️ Gemini Rate Limited: Too many requests');
+        throw Exception('RATE_LIMITED: Too many requests. Retrying...');
+      }
+
+      debugPrint(
+          '❌ Gemini API Error: ${response.statusCode}\nBody: ${response.body}');
       throw Exception(
-          'Invalid API key. Please check your Gemini API key in settings.');
+          'API error ${response.statusCode}: ${_safeBody(response.body)}');
+    } catch (e) {
+      debugPrint('❌ Network error calling Gemini: $e');
+      rethrow;
     }
-    if (response.statusCode == 429) {
-      throw Exception('RATE_LIMITED: Too many requests. Retrying...');
-    }
-
-    throw Exception(
-        'API error ${response.statusCode}: ${_safeBody(response.body)}');
   }
 
   static String _extractResponseText(Map<String, dynamic> data) {
