@@ -4,8 +4,6 @@ import 'package:provider/provider.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import '../services/app_state.dart';
 import '../services/ai_service.dart';
-import '../services/voice_agent_service.dart';
-import '../services/localization_service.dart';
 import '../utils/app_theme.dart';
 import '../models/models.dart';
 import '../widgets/shared_widgets.dart';
