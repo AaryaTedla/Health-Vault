@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../services/app_state.dart';
 import '../services/voice_agent_service.dart';
 import '../services/voice_intent_router.dart';
+import '../services/voice_intents_en_hi.dart';
 import '../models/models.dart';
 import '../utils/app_theme.dart';
 import 'dashboard_screen.dart';
@@ -42,14 +43,7 @@ class _MainShellState extends State<MainShell> {
       if (!mounted) return;
 
       try {
-        // Show what was heard
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Heard: "$transcript" (${(confidence * 100).toStringAsFixed(0)}%)'),
-            duration: const Duration(seconds: 1),
-          ),
-        );
+        debugPrint('Voice transcript: "$transcript" (${(confidence * 100).toStringAsFixed(0)}%)');
 
         // Process command through AI router
         final result = await _voiceRouter!.processVoiceCommand(
@@ -68,39 +62,16 @@ class _MainShellState extends State<MainShell> {
           // Execute the command immediately
           _executeVoiceIntent(result);
         } else {
-          // Show error message with suggestion
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  result.reason ?? 'Command not understood. Please try again.'),
-              backgroundColor: Colors.orange.shade700,
-              duration: const Duration(seconds: 3),
-            ),
-          );
+          debugPrint(result.reason ?? 'Command not understood. Please try again.');
         }
       } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Error: $e'),
-              backgroundColor: Colors.red.shade700,
-              duration: const Duration(seconds: 3),
-            ),
-          );
-        }
+        debugPrint('Voice command error: $e');
       }
     };
 
     _voiceService.onError = (error) {
       if (mounted) {
         debugPrint('Voice error: $error');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error),
-            backgroundColor: Colors.red.shade700,
-            duration: const Duration(seconds: 4),
-          ),
-        );
       }
     };
 
@@ -152,6 +123,11 @@ class _MainShellState extends State<MainShell> {
           _setTab(0); // Guardian dashboard
           _showFeedback('Opening Guardian Info');
         }
+        break;
+
+      case VoiceIntentType.help:
+        _showVoiceCommandGuide();
+        _showFeedback('Opening voice command guide');
         break;
 
       case VoiceIntentType.emergency:
@@ -237,6 +213,146 @@ class _MainShellState extends State<MainShell> {
             child: const Text('Send Alert'),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showVoiceCommandGuide() {
+    final state = context.read<AppState>();
+    final language = state.selectedLanguage == 'Hindi' ? 'hi' : 'en';
+    final phrases = VoiceIntentPhrases.getPhrasesForLanguage(language);
+    final helpPhrases = VoiceIntentPhrases.helpPhrases[language] ?? const [];
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.8,
+        minChildSize: 0.55,
+        maxChildSize: 0.95,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: ListView(
+              controller: scrollController,
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
+              children: [
+                Center(
+                  child: Container(
+                    width: 48,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: AppTheme.divider,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Voice Commands',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'You can speak these naturally. They work in English and Hindi.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.textSecondary,
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _voiceGuideSection('Help', helpPhrases),
+                _voiceGuideSection('Medicines', [
+                  ...(phrases['medicine']?['list'] ?? const []),
+                  ...(phrases['medicine']?['next_dose'] ?? const []),
+                  ...(phrases['medicine']?['mark_taken'] ?? const []),
+                  ...(phrases['medicine']?['add_reminder'] ?? const []),
+                ]),
+                _voiceGuideSection('Appointments', [
+                  ...(phrases['appointment']?['list'] ?? const []),
+                  ...(phrases['appointment']?['add'] ?? const []),
+                ]),
+                _voiceGuideSection('Documents', [
+                  ...(phrases['document']?['list'] ?? const []),
+                  ...(phrases['document']?['open'] ?? const []),
+                ]),
+                _voiceGuideSection('Guardian', [
+                  ...(phrases['guardian']?['status'] ?? const []),
+                ]),
+                _voiceGuideSection('Profile', [
+                  ...(phrases['navigation']?['profile'] ?? const []),
+                ]),
+                _voiceGuideSection('Emergency', [
+                  ...(phrases['emergency']?['trigger'] ?? const []),
+                ]),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _voiceGuideSection(String title, List<String> examples) {
+    final uniqueExamples = examples
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppTheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.divider),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: uniqueExamples
+                  .map(
+                    (example) => Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(999),
+                        border: Border.all(color: AppTheme.divider),
+                      ),
+                      child: Text(
+                        example,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: AppTheme.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+        ),
       ),
     );
   }

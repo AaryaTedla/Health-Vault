@@ -343,6 +343,7 @@ enum VoiceIntentType {
   emergency, // Emergency trigger
   guardian, // Guardian status
   profile, // Profile operations
+  help, // Show voice command guide
   unknown, // Unknown intent
 }
 

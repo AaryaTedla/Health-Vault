@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:provider/provider.dart';
+import '../models/models.dart';
 import '../services/app_state.dart';
+import '../services/native_intent_service.dart';
 import '../services/notification_service.dart';
 import '../utils/app_theme.dart';
 import '../widgets/shared_widgets.dart';
@@ -303,6 +305,11 @@ class _EmergencyScreenState extends State<EmergencyScreen>
                             ],
                           ),
                         ),
+                        IconButton(
+                          tooltip: 'Call ${contact.name}',
+                          onPressed: () => _callEmergencyContact(contact.phone),
+                          icon: const Icon(Icons.call_rounded, color: AppTheme.secondary),
+                        ),
                         Checkbox(
                           value: selected,
                           activeColor: AppTheme.primary,
@@ -401,6 +408,7 @@ class _EmergencyScreenState extends State<EmergencyScreen>
     }
 
     final locationError = await appState.startEmergencyLiveLocationSharing();
+    await _shareEmergencyLocation(selected, user, appState);
 
     setState(() => _alertSent = true);
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -410,6 +418,51 @@ class _EmergencyScreenState extends State<EmergencyScreen>
       backgroundColor: locationError == null ? AppTheme.secondary : AppTheme.warning,
       duration: const Duration(seconds: 4),
     ));
+  }
+
+  Future<void> _shareEmergencyLocation(
+    List<EmergencyContact> contacts,
+    AppUser? user,
+    AppState appState,
+  ) async {
+    if (contacts.isEmpty) return;
+
+    final recipients = contacts.map((c) => c.phone).toList(growable: false);
+    final live = appState.liveLocationSnapshot;
+    final lat = (live?['latitude'] as num?)?.toDouble();
+    final lng = (live?['longitude'] as num?)?.toDouble();
+    final locationLine = (lat != null && lng != null)
+        ? 'Current location: https://maps.google.com/?q=${lat.toStringAsFixed(6)},${lng.toStringAsFixed(6)}'
+        : 'Live location is being shared in the HealthVault app.';
+    final message = [
+      'Emergency alert from ${user?.name ?? 'HealthVault user'}.',
+      locationLine,
+      if ((user?.phone ?? '').trim().isNotEmpty) 'Call back: ${user!.phone}',
+    ].join('\n');
+
+    final opened = await NativeIntentService.composeSms(
+      recipients: recipients,
+      message: message,
+    );
+
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open SMS app. Please share the location manually.'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _callEmergencyContact(String phone) async {
+    final opened = await NativeIntentService.callPhoneNumber(phone);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not open phone dialer.'),
+        ),
+      );
+    }
   }
 
   String _formatRemaining(Duration d) {

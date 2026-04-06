@@ -3,6 +3,7 @@ import '../models/models.dart';
 import 'app_state.dart';
 import 'audit_service.dart';
 import 'ai_service.dart';
+import 'voice_intents_en_hi.dart';
 
 /// Voice Intent Router - Maps voice commands to app actions
 /// Handles intent recognition, parameter extraction, and action execution
@@ -25,6 +26,35 @@ class VoiceIntentRouter {
     required double confidence,
   }) async {
     try {
+      final catalogIntent = _parseFromCatalog(transcript, language);
+      if (catalogIntent != null) {
+        final (intent, params) = catalogIntent;
+        if (highRiskActions.contains(intent)) {
+          return VoiceIntentResult(
+            intent: intent,
+            recognized: true,
+            requiresConfirmation: true,
+            params: params,
+            reason: _getConfirmationPrompt(intent, params),
+          );
+        }
+        return await _executeIntent(intent, params);
+      }
+
+      final (keywordIntent, keywordParams) = _parseIntent(transcript, language);
+      if (keywordIntent != VoiceIntentType.unknown) {
+        if (highRiskActions.contains(keywordIntent)) {
+          return VoiceIntentResult(
+            intent: keywordIntent,
+            recognized: true,
+            requiresConfirmation: true,
+            params: keywordParams,
+            reason: _getConfirmationPrompt(keywordIntent, keywordParams),
+          );
+        }
+        return await _executeIntent(keywordIntent, keywordParams);
+      }
+
       // Step 1: Use AI to understand the voice command
       final aiUnderstanding = await AIService.understandVoiceCommand(
         transcript: transcript,
@@ -103,6 +133,8 @@ class VoiceIntentRouter {
         return VoiceIntentType.profile;
       case 'guardian':
         return VoiceIntentType.guardian;
+      case 'help':
+        return VoiceIntentType.help;
       default:
         return VoiceIntentType.unknown;
     }
@@ -125,6 +157,8 @@ class VoiceIntentRouter {
         return {'action': 'view'};
       case VoiceIntentType.guardian:
         return {'action': 'status'};
+      case VoiceIntentType.help:
+        return {'action': 'guide'};
       default:
         return {};
     }
@@ -156,6 +190,69 @@ class VoiceIntentRouter {
         pendingIntent.intent, pendingIntent.params ?? {});
   }
 
+  (VoiceIntentType, Map<String, dynamic>)? _parseFromCatalog(
+    String transcript,
+    String language,
+  ) {
+    final lower = transcript.toLowerCase().trim();
+    final lang = language == 'hi' ? 'hi' : 'en';
+
+    bool matches(List<String> phrases) =>
+        VoiceIntentPhrases.matchesPhrase(lower, phrases);
+
+    if (matches(VoiceIntentPhrases.helpPhrases[lang] ?? const [])) {
+      return (VoiceIntentType.help, {'action': 'guide'});
+    }
+
+    if (matches(VoiceIntentPhrases.emergencyPhrases[lang]?['trigger'] ?? const [])) {
+      return (VoiceIntentType.emergency, {'action': 'trigger'});
+    }
+
+    if (matches(VoiceIntentPhrases.navigationPhrases[lang]?['medicines'] ?? const [])) {
+      return (VoiceIntentType.medicine, {'action': 'list'});
+    }
+    if (matches(VoiceIntentPhrases.medicinePhrases[lang]?['next_dose'] ?? const [])) {
+      return (VoiceIntentType.medicine, {'action': 'next_dose'});
+    }
+    if (matches(VoiceIntentPhrases.medicinePhrases[lang]?['mark_taken'] ?? const [])) {
+      return (VoiceIntentType.medicine, {'action': 'mark_taken'});
+    }
+    if (matches(VoiceIntentPhrases.medicinePhrases[lang]?['add_reminder'] ?? const [])) {
+      return (VoiceIntentType.medicine, {'action': 'add_reminder'});
+    }
+
+    if (matches(VoiceIntentPhrases.navigationPhrases[lang]?['appointments'] ?? const []) ||
+        matches(VoiceIntentPhrases.appointmentPhrases[lang]?['list'] ?? const [])) {
+      return (VoiceIntentType.appointment, {'action': 'list'});
+    }
+    if (matches(VoiceIntentPhrases.appointmentPhrases[lang]?['add'] ?? const [])) {
+      return (VoiceIntentType.appointment, {'action': 'add'});
+    }
+
+    if (matches(VoiceIntentPhrases.navigationPhrases[lang]?['documents'] ?? const []) ||
+        matches(VoiceIntentPhrases.documentPhrases[lang]?['list'] ?? const [])) {
+      return (VoiceIntentType.document, {'action': 'list'});
+    }
+    if (matches(VoiceIntentPhrases.documentPhrases[lang]?['open'] ?? const [])) {
+      return (VoiceIntentType.document, {'action': 'open'});
+    }
+
+    if (matches(VoiceIntentPhrases.navigationPhrases[lang]?['chat'] ?? const [])) {
+      return (VoiceIntentType.navigate, {'target': 'ai_chat'});
+    }
+
+    if (matches(VoiceIntentPhrases.navigationPhrases[lang]?['guardian'] ?? const []) ||
+        matches(VoiceIntentPhrases.guardianPhrases[lang]?['status'] ?? const [])) {
+      return (VoiceIntentType.guardian, {'action': 'status'});
+    }
+
+    if (matches(VoiceIntentPhrases.navigationPhrases[lang]?['profile'] ?? const [])) {
+      return (VoiceIntentType.profile, {'action': 'view'});
+    }
+
+    return null;
+  }
+
   // ───────────────────────────────────────────────────────────────────────────
   // Intent parsing and NLP (simplified keyword matching)
   (VoiceIntentType, Map<String, dynamic>) _parseIntent(
@@ -163,6 +260,45 @@ class VoiceIntentRouter {
     String language,
   ) {
     final lower = transcript.toLowerCase().trim();
+    final lang = language == 'hi' ? 'hi' : 'en';
+
+    if (VoiceIntentPhrases.matchesPhrase(
+      lower,
+      VoiceIntentPhrases.helpPhrases[lang] ?? const [],
+    )) {
+      return (VoiceIntentType.help, {'action': 'guide'});
+    }
+
+    final phrases = VoiceIntentPhrases.getPhrasesForLanguage(lang);
+
+    bool matchesCatalog(List<String> words) =>
+        VoiceIntentPhrases.matchesPhrase(lower, words);
+
+    if (matchesCatalog(phrases['navigation']?['medicines'] ?? const [])) {
+      return (VoiceIntentType.medicine, {'action': 'list'});
+    }
+    if (matchesCatalog(phrases['navigation']?['appointments'] ?? const []) ||
+        matchesCatalog(phrases['appointment']?['list'] ?? const [])) {
+      return (VoiceIntentType.appointment, {'action': 'list'});
+    }
+    if (matchesCatalog(phrases['navigation']?['documents'] ?? const []) ||
+        matchesCatalog(phrases['document']?['list'] ?? const [])) {
+      return (VoiceIntentType.document, {'action': 'list'});
+    }
+    if (matchesCatalog(phrases['navigation']?['chat'] ?? const [])) {
+      return (VoiceIntentType.navigate, {'target': 'ai_chat'});
+    }
+    if (matchesCatalog(phrases['navigation']?['emergency'] ?? const []) ||
+        matchesCatalog(phrases['emergency']?['trigger'] ?? const [])) {
+      return (VoiceIntentType.emergency, {'action': 'trigger'});
+    }
+    if (matchesCatalog(phrases['navigation']?['guardian'] ?? const []) ||
+        matchesCatalog(phrases['guardian']?['status'] ?? const [])) {
+      return (VoiceIntentType.guardian, {'action': 'status'});
+    }
+    if (matchesCatalog(phrases['navigation']?['profile'] ?? const [])) {
+      return (VoiceIntentType.profile, {'action': 'view'});
+    }
 
     // Navigation intents
     if (_matchesKeywords(lower, ['show', 'open', 'go to'],
@@ -275,6 +411,9 @@ class VoiceIntentRouter {
 
         case VoiceIntentType.profile:
           return _handleProfileAction(params);
+
+        case VoiceIntentType.help:
+          return _handleHelp(params);
 
         case VoiceIntentType.unknown:
           return VoiceIntentResult(
@@ -477,6 +616,21 @@ class VoiceIntentRouter {
       recognized: true,
       executed: true,
       reason: reason,
+      params: params,
+    );
+  }
+
+  VoiceIntentResult _handleHelp(Map<String, dynamic> params) {
+    AuditService.logVoiceAction(
+      action: 'voice_help_opened',
+      details: {'action': params['action'] ?? 'guide'},
+    );
+
+    return VoiceIntentResult(
+      intent: VoiceIntentType.help,
+      recognized: true,
+      executed: true,
+      reason: 'Opening voice command guide.',
       params: params,
     );
   }

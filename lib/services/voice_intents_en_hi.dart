@@ -217,6 +217,13 @@ class VoiceIntentPhrases {
     },
   };
 
+  // ─── Help Commands ───────────────────────────────────────────────────────
+
+  static const helpPhrases = {
+    'en': ['help', 'voice commands', 'what can i say', 'show commands'],
+    'hi': ['मदद', 'कमांड दिखाओ', 'मैं क्या कह सकता हूँ', 'आदेश दिखाओ'],
+  };
+
   // ─── Confirmation Commands ───────────────────────────────────────────────
 
   static const confirmationPhrases = {
@@ -233,17 +240,28 @@ class VoiceIntentPhrases {
   // ─── Utility Methods ────────────────────────────────────────────────────
 
   /// Get all command phrases for a specific language
-  static Map<String, List<String>?> getPhrasesForLanguage(String language) {
+    static Map<String, Map<String, List<String>>> getPhrasesForLanguage(
+      String language) {
     final lang = language == 'hi' ? 'hi' : 'en';
 
     return {
-      'navigation': navigationPhrases[lang],
-      'medicine': medicinePhrases[lang],
-      'appointment': appointmentPhrases[lang],
-      'document': documentPhrases[lang],
-      'emergency': emergencyPhrases[lang],
-      'guardian': guardianPhrases[lang],
-      'confirmation': confirmationPhrases[lang],
+      'navigation': Map<String, List<String>>.from(
+        navigationPhrases[lang] ?? const {}),
+      'medicine':
+        Map<String, List<String>>.from(medicinePhrases[lang] ?? const {}),
+      'appointment':
+        Map<String, List<String>>.from(appointmentPhrases[lang] ?? const {}),
+      'document':
+        Map<String, List<String>>.from(documentPhrases[lang] ?? const {}),
+      'emergency':
+        Map<String, List<String>>.from(emergencyPhrases[lang] ?? const {}),
+      'guardian':
+        Map<String, List<String>>.from(guardianPhrases[lang] ?? const {}),
+      'help': Map<String, List<String>>.from({
+        'phrases': List<String>.from(helpPhrases[lang] ?? const []),
+      }),
+      'confirmation': Map<String, List<String>>.from(
+        confirmationPhrases[lang] ?? const {}),
     };
   }
 
