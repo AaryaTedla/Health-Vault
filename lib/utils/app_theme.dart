@@ -26,26 +26,29 @@ class AppTheme {
         secondary: secondary,
         surface: surface,
       ),
+      // Elderly-friendly text theme with larger sizes
       textTheme: GoogleFonts.poppinsTextTheme().copyWith(
-        displayLarge: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.w700, color: textPrimary),
-        headlineLarge: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.w700, color: textPrimary),
-        headlineMedium: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.w600, color: textPrimary),
-        headlineSmall: GoogleFonts.poppins(fontSize: 20, fontWeight: FontWeight.w600, color: textPrimary),
-        titleLarge: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600, color: textPrimary),
-        titleMedium: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w500, color: textPrimary),
-        bodyLarge: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w400, color: textPrimary, height: 1.6),
-        bodyMedium: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w400, color: textSecondary, height: 1.6),
-        bodySmall: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w400, color: textHint),
-        labelLarge: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
+        displayLarge: GoogleFonts.poppins(fontSize: 32, fontWeight: FontWeight.w700, color: textPrimary),
+        headlineLarge: GoogleFonts.poppins(fontSize: 28, fontWeight: FontWeight.w700, color: textPrimary),
+        headlineMedium: GoogleFonts.poppins(fontSize: 26, fontWeight: FontWeight.w600, color: textPrimary),
+        headlineSmall: GoogleFonts.poppins(fontSize: 24, fontWeight: FontWeight.w600, color: textPrimary),
+        titleLarge: GoogleFonts.poppins(fontSize: 22, fontWeight: FontWeight.w600, color: textPrimary),
+        titleMedium: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w500, color: textPrimary),
+        bodyLarge: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w400, color: textPrimary, height: 1.8),
+        bodyMedium: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w400, color: textSecondary, height: 1.8),
+        bodySmall: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w400, color: textHint),
+        labelLarge: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
       ),
+      // Large, easy-to-tap buttons for elderly users
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: primary,
           foregroundColor: Colors.white,
-          minimumSize: const Size(double.infinity, 58),
+          minimumSize: const Size(double.infinity, 72), // Increased from 58
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           elevation: 0,
-          textStyle: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w600),
+          textStyle: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w600),
+          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(

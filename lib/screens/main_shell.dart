@@ -34,15 +34,59 @@ class _MainShellState extends State<MainShell> {
     _voiceService = VoiceAgentService();
     await _voiceService.initialize();
 
-    _voiceService.onTranscript = (transcript, confidence) {
-      if (mounted) {
+    // Initialize voice intent router with AppState
+    _voiceRouter = VoiceIntentRouter(appState: context.read<AppState>());
+
+    // Process voice commands and execute them
+    _voiceService.onTranscript = (transcript, confidence) async {
+      if (!mounted) return;
+
+      try {
+        // Show what was heard
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
                 'Heard: "$transcript" (${(confidence * 100).toStringAsFixed(0)}%)'),
-            duration: const Duration(seconds: 2),
+            duration: const Duration(seconds: 1),
           ),
         );
+
+        // Process command through AI router
+        final result = await _voiceRouter!.processVoiceCommand(
+          transcript: transcript,
+          language: _voiceService.currentLanguage,
+          confidence: confidence,
+        );
+
+        if (!mounted) return;
+
+        // Handle the result
+        if (result.requiresConfirmation) {
+          // Show confirmation dialog for high-risk actions
+          _showConfirmationDialog(result);
+        } else if (result.recognized) {
+          // Execute the command immediately
+          _executeVoiceIntent(result);
+        } else {
+          // Show error message with suggestion
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(result.reason),
+              backgroundColor: Colors.orange.shade700,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.red.shade700,
+              duration: const Duration(seconds: 3),
+            ),
+          );
+        }
       }
     };
 
@@ -66,6 +110,135 @@ class _MainShellState extends State<MainShell> {
     };
 
     setState(() {});
+  }
+
+  /// Execute voice command intent by navigating or performing action
+  void _executeVoiceIntent(VoiceIntentResult result) {
+    switch (result.intent) {
+      case VoiceIntentType.navigate:
+        final target = result.params?['target'] as String?;
+        if (target == 'ai_chat') {
+          _setTab(3); // AI Chat tab
+          _showFeedback('Opening AI Chat');
+        } else if (target == 'home') {
+          _setTab(0);
+          _showFeedback('Going to Home');
+        }
+        break;
+
+      case VoiceIntentType.medicine:
+        _setTab(2); // Medicines tab
+        _showFeedback('Opening Medicines');
+        break;
+
+      case VoiceIntentType.appointment:
+        _setTab(1); // Records/Appointments tab
+        _showFeedback('Opening Appointments');
+        break;
+
+      case VoiceIntentType.document:
+        _setTab(1); // Documents tab
+        _showFeedback('Opening Documents');
+        break;
+
+      case VoiceIntentType.profile:
+        _setTab(4); // Profile tab
+        _showFeedback('Opening Profile');
+        break;
+
+      case VoiceIntentType.guardian:
+        if (context.read<AppState>().isGuardian) {
+          _setTab(0); // Guardian dashboard
+          _showFeedback('Opening Guardian Info');
+        }
+        break;
+
+      case VoiceIntentType.emergency:
+        _showEmergencyDialog();
+        break;
+
+      case VoiceIntentType.unknown:
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Command not understood. Please try again.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 2),
+          ),
+        );
+        break;
+    }
+  }
+
+  /// Show confirmation dialog for high-risk actions
+  void _showConfirmationDialog(VoiceIntentResult result) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Confirm Action'),
+        content: Text(result.reason),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showFeedback('Action cancelled');
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _executeVoiceIntent(result);
+            },
+            child: const Text('Confirm'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show emergency confirmation dialog
+  void _showEmergencyDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('EMERGENCY ALERT'),
+        content: const Text(
+            'Are you sure you want to send an emergency alert to your emergency contacts?'),
+        backgroundColor: Colors.red.shade50,
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _showFeedback('Emergency alert cancelled');
+            },
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+            ),
+            onPressed: () {
+              Navigator.pop(context);
+              _showFeedback('Emergency alert sent!');
+              // TODO: Implement actual emergency alert logic
+            },
+            child: const Text('Send Alert'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Show feedback message for action
+  void _showFeedback(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green.shade600,
+        duration: const Duration(seconds: 2),
+      ),
+    );
   }
 
   void _handleVoiceInput() {
@@ -201,38 +374,40 @@ class _MainShellState extends State<MainShell> {
 
   Widget _buildVoiceIndicator() {
     final state = _voiceService.currentState;
+    final transcript = _voiceService.activeSession?.transcript ?? '';
+    
     String message;
     Color bgColor;
     IconData icon;
 
     switch (state) {
       case VoiceState.listening:
-        message = 'Listening...';
+        message = '🎤 Listening... Please speak clearly';
         bgColor = Colors.red.shade600;
         icon = Icons.mic;
         break;
       case VoiceState.transcribing:
-        message = 'Processing speech...';
+        message = '⏳ Processing what you said...';
         bgColor = Colors.orange.shade600;
         icon = Icons.hourglass_bottom;
         break;
       case VoiceState.confirming:
-        message = 'Confirm: "${_voiceService.activeSession?.transcript ?? ''}"';
+        message = 'Did you say: "$transcript"?\nTap Confirm below.';
         bgColor = Colors.blue.shade600;
         icon = Icons.done_outline;
         break;
       case VoiceState.executing:
-        message = 'Executing command...';
+        message = '⚙️ Opening for you...';
         bgColor = Colors.blue.shade600;
         icon = Icons.play_circle_filled;
         break;
       case VoiceState.speaking:
-        message = 'Speaking response...';
+        message = '🔊 Speaking response...';
         bgColor = Colors.green.shade600;
         icon = Icons.volume_up;
         break;
       case VoiceState.error:
-        message = _voiceService.activeSession?.errorMessage ?? 'Error occurred';
+        message = '❌ ${_voiceService.activeSession?.errorMessage ?? 'Error occurred. Please try again.'}';
         bgColor = Colors.red.shade900;
         icon = Icons.error_outline;
         break;
@@ -244,29 +419,50 @@ class _MainShellState extends State<MainShell> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       color: bgColor,
       child: SafeArea(
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Icon(icon, color: Colors.white, size: 28),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          message,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            height: 1.4,
+                          ),
+                          maxLines: 3,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
             if (state != VoiceState.idle)
               GestureDetector(
                 onTap: _voiceService.cancelVoiceSession,
-                child: const Icon(Icons.close, color: Colors.white, size: 20),
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.3),
+                    borderRadius: BorderRadius.circular(50),
+                  ),
+                  child: const Icon(Icons.close, color: Colors.white, size: 24),
+                ),
               ),
           ],
         ),
