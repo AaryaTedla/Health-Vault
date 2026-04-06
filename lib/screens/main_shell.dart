@@ -588,6 +588,35 @@ class _ProfileScreen extends StatelessWidget {
                         label: const Text('Refresh Link Status'),
                       ),
                     ),
+                    if ((state.guardianPairingStatusMessage ?? '').isNotEmpty)
+                      Container(
+                        width: double.infinity,
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFECF8F2),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFB6E2CA)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.info_outline_rounded,
+                                size: 18, color: Color(0xFF2F855A)),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                state.guardianPairingStatusMessage!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF2F855A),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     if (state.linkedPatientProfile != null)
                       Container(
                         width: double.infinity,
@@ -829,10 +858,12 @@ class _ProfileScreen extends StatelessWidget {
 
   void _showLinkPatientDialog(BuildContext context) {
     final codeCtrl = TextEditingController();
+    bool isSubmitting = false;
 
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => StatefulBuilder(
+        builder: (context, setStateDialog) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         title: const Text('Link Patient Account'),
         content: TextField(
@@ -846,16 +877,26 @@ class _ProfileScreen extends StatelessWidget {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: isSubmitting ? null : () => Navigator.pop(context),
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () async {
+            onPressed: isSubmitting
+                ? null
+                : () async {
               final code = codeCtrl.text.trim();
-              if (code.isEmpty) return;
+              if (code.isEmpty || code.length != 6) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Please enter a valid 6-digit invite code.')),
+                );
+                return;
+              }
+
+              setStateDialog(() => isSubmitting = true);
 
               final error = await context.read<AppState>().requestPatientLink(code);
               if (!context.mounted) return;
+              setStateDialog(() => isSubmitting = false);
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -863,10 +904,16 @@ class _ProfileScreen extends StatelessWidget {
                 ),
               );
             },
-            child: const Text('Send Request'),
+            child: isSubmitting
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('Send Request'),
           ),
         ],
-      ),
+      )),
     );
   }
 

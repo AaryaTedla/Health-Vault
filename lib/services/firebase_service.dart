@@ -326,22 +326,58 @@ class FirebaseService {
       return 'Invite code expired. Ask patient to generate a new one.';
     }
 
-    final reqId = '${patientId}_${current.uid}';
-    final currentProfile = await loadUserProfile(current.uid);
+    try {
+      final requests = FirebaseFirestore.instance.collection('pairingRequests');
 
-    await FirebaseFirestore.instance.collection('pairingRequests').doc(reqId).set({
-      'requestId': reqId,
-      'patientId': patientId,
-      'guardianId': current.uid,
-      'guardianName': currentProfile?.name ?? current.email?.split('@').first ?? 'Guardian',
-      'guardianEmail': current.email ?? '',
-      'code': code,
-      'status': 'pending',
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      final existingPending = await requests
+          .where('patientId', isEqualTo: patientId)
+          .where('guardianId', isEqualTo: current.uid)
+          .where('status', isEqualTo: 'pending')
+          .limit(1)
+          .get();
 
-    return null;
+      if (existingPending.docs.isNotEmpty) {
+        return 'A pairing request is already pending approval.';
+      }
+
+      final careLinkSnap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(patientId)
+          .collection('careLinks')
+          .doc(current.uid)
+          .get();
+
+      final careLinkStatus = (careLinkSnap.data()?['status'] ?? '').toString();
+      if (careLinkStatus == 'active') {
+        return 'This guardian account is already linked to that patient.';
+      }
+
+      final reqRef = requests.doc();
+      final reqId = reqRef.id;
+      final currentProfile = await loadUserProfile(current.uid);
+
+      await reqRef.set({
+        'requestId': reqId,
+        'patientId': patientId,
+        'guardianId': current.uid,
+        'guardianName':
+            currentProfile?.name ?? current.email?.split('@').first ?? 'Guardian',
+        'guardianEmail': current.email ?? '',
+        'code': code,
+        'status': 'pending',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      return null;
+    } on FirebaseException catch (e) {
+      if (e.code == 'permission-denied') {
+        return 'Permission denied while sending request. Check Firestore rules deployment.';
+      }
+      return 'Could not send pairing request. Please try again.';
+    } catch (_) {
+      return 'Could not send pairing request. Please try again.';
+    }
   }
 
   static Future<List<Map<String, dynamic>>> loadPendingPairingRequests(
@@ -449,6 +485,33 @@ class FirebaseService {
       'rejectedBy': current.uid,
     }, SetOptions(merge: true));
     return true;
+  }
+
+  static Future<Map<String, dynamic>?> loadLatestPairingRequestForGuardian(
+      String guardianId) async {
+    if (!_isReady) return null;
+    final current = FirebaseAuth.instance.currentUser;
+    if (current == null || current.uid != guardianId) return null;
+
+    final snap = await FirebaseFirestore.instance
+        .collection('pairingRequests')
+        .where('guardianId', isEqualTo: guardianId)
+        .get();
+
+    if (snap.docs.isEmpty) return null;
+
+    final items = snap.docs.map((d) => d.data()).toList();
+    items.sort((a, b) {
+      final ta = (a['updatedAt'] as Timestamp?)?.toDate() ??
+          (a['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime(1970);
+      final tb = (b['updatedAt'] as Timestamp?)?.toDate() ??
+          (b['createdAt'] as Timestamp?)?.toDate() ??
+          DateTime(1970);
+      return tb.compareTo(ta);
+    });
+
+    return items.first;
   }
 
   static Future<String?> loadLinkedPatientIdForGuardian(String guardianId) async {

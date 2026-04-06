@@ -43,6 +43,7 @@ class AppState extends ChangeNotifier {
   Timer? _guardianLinkSyncTimer;
   bool _isPushingLiveLocation = false;
   String? _liveLocationStatusNote;
+  String? _guardianPairingStatusMessage;
   DateTime? _lastGuardianNotifiedLiveExpiry;
   bool _crisisModeEnabled = false;
   List<Map<String, dynamic>> _guardianEmergencyResponses = [];
@@ -78,6 +79,7 @@ class AppState extends ChangeNotifier {
   DateTime? get liveLocationExpiresAt => _liveLocationExpiresAt;
   Map<String, dynamic>? get liveLocationSnapshot => _liveLocationSnapshot;
   String? get liveLocationStatusNote => _liveLocationStatusNote;
+  String? get guardianPairingStatusMessage => _guardianPairingStatusMessage;
   bool get crisisModeEnabled => _crisisModeEnabled;
   List<Map<String, dynamic>> get guardianEmergencyResponses => _guardianEmergencyResponses;
   Map<String, String> get reliabilityStatus => _reliabilityStatus;
@@ -187,6 +189,7 @@ class AppState extends ChangeNotifier {
     _linkedPatientId = null;
     _linkedPatientProfile = null;
     _linkedGuardians = [];
+    _guardianPairingStatusMessage = null;
     _liveLocationSnapshot = null;
     _liveLocationExpiresAt = null;
     _isLiveLocationSharing = false;
@@ -1242,6 +1245,9 @@ class AppState extends ChangeNotifier {
           'manageMedicines': rawPermissions['manageMedicines'] == true,
         };
       }
+      _guardianPairingStatusMessage = _linkedPatientProfile == null
+          ? 'Pairing approved. You are now linked.'
+          : 'Pairing approved. You are now linked to ${_linkedPatientProfile!.name}.';
     } else {
       _linkedPatientProfile = null;
       _documents = [];
@@ -1253,6 +1259,7 @@ class AppState extends ChangeNotifier {
         'receiveEmergencyAlerts': false,
         'manageMedicines': false,
       };
+      await _refreshGuardianPairingStatus();
     }
 
     await refreshLiveLocationSnapshot();
@@ -1299,6 +1306,8 @@ class AppState extends ChangeNotifier {
         await _loadDocuments();
         await _loadMedicines();
         notifyListeners();
+      } else {
+        await _refreshGuardianPairingStatus();
       }
 
       if (_linkedPatientId != null && _linkedPatientId!.isNotEmpty) {
@@ -1320,14 +1329,19 @@ class AppState extends ChangeNotifier {
   Future<String?> requestPatientLink(String code) async {
     final user = _currentUser;
     if (user == null || !user.isGuardian) return 'Only guardian accounts can request pairing.';
-    final error = await FirebaseService.submitPairingRequest(code);
-    if (error == null) {
-      await _syncRoleContext();
-      await _loadDocuments();
-      await _loadMedicines();
-      notifyListeners();
+    try {
+      final error = await FirebaseService.submitPairingRequest(code);
+      if (error == null) {
+        _guardianPairingStatusMessage = 'Pair request sent. Waiting for patient approval.';
+        await _syncRoleContext();
+        await _loadDocuments();
+        await _loadMedicines();
+        notifyListeners();
+      }
+      return error;
+    } catch (_) {
+      return 'Could not send pairing request. Please try again.';
     }
-    return error;
   }
 
   Future<void> refreshPendingPairingRequests() async {
@@ -1359,6 +1373,33 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
     return ok;
+  }
+
+  Future<void> _refreshGuardianPairingStatus() async {
+    final user = _currentUser;
+    if (user == null || !user.isGuardian) {
+      _guardianPairingStatusMessage = null;
+      return;
+    }
+
+    final req = await FirebaseService.loadLatestPairingRequestForGuardian(user.uid);
+    if (req == null) {
+      if (_linkedPatientId == null || _linkedPatientId!.isEmpty) {
+        _guardianPairingStatusMessage = null;
+      }
+      return;
+    }
+
+    final status = (req['status'] ?? '').toString();
+    if (status == 'pending') {
+      _guardianPairingStatusMessage = 'Pair request sent. Waiting for patient approval.';
+      return;
+    }
+
+    if (status == 'rejected') {
+      _guardianPairingStatusMessage =
+          'Pair request was rejected. Ask the patient for a new invite code.';
+    }
   }
 
   Future<bool> rejectPairingRequest(String requestId) async {
