@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_theme.dart';
@@ -21,8 +22,8 @@ class AIService {
     required String patientName,
   }) async {
     final langInstruction = language == 'English'
-      ? 'Respond only in simple English.'
-      : 'Respond only in $language language with very simple words an elderly person can understand.';
+        ? 'Respond only in simple English.'
+        : 'Respond only in $language language with very simple words an elderly person can understand.';
     final prompt = """
 You are a kind medical assistant helping elderly patients understand their health documents.
 Patient Name: $patientName
@@ -45,10 +46,11 @@ Keep total under 250 words.
     required List<String> conditions,
     required List<String> conversationHistory,
   }) async {
-    final condText = conditions.isEmpty ? 'None mentioned' : conditions.join(', ');
+    final condText =
+        conditions.isEmpty ? 'None mentioned' : conditions.join(', ');
     final historyText = conversationHistory.length > 6
-      ? conversationHistory.sublist(conversationHistory.length - 6).join('\n')
-      : conversationHistory.join('\n');
+        ? conversationHistory.sublist(conversationHistory.length - 6).join('\n')
+        : conversationHistory.join('\n');
     final prompt = """
 You are HealthVault, a warm caring health companion for elderly patients in India.
 Patient Name: $patientName
@@ -85,6 +87,70 @@ End with: "${AppConstants.chatDisclaimer}"
     return _callAI(prompt);
   }
 
+  /// Understand natural language voice command using AI
+  /// Returns JSON with intent and action (e.g., { "intent": "navigate", "action": "medicines", "understood": true })
+  static Future<Map<String, dynamic>> understandVoiceCommand({
+    required String transcript,
+    required String language,
+  }) async {
+    final langContext = language == 'hi'
+        ? 'The user may speak Hindi or English. Respond in English JSON.'
+        : 'Respond in English JSON.';
+
+    final prompt = """
+Parse this voice command: "$transcript"
+$langContext
+
+Return ONLY valid JSON (no markdown, no text before/after):
+{
+  "understood": true/false,
+  "intent": "navigate|medicine|appointment|document|emergency|chat|profile|unknown",
+  "action": "medicines|appointments|documents|chat|profile|home|emergency",
+  "confidence": 0.0-1.0,
+  "clarification": "If not understood, suggest what user might want"
+}
+
+Examples:
+- "show my medicines" → {"understood": true, "intent": "navigate", "action": "medicines", "confidence": 0.95}
+- "दवाई दिखाओ" → {"understood": true, "intent": "navigate", "action": "medicines", "confidence": 0.95}
+- "help" → {"understood": false, "intent": "unknown", "action": "", "confidence": 0.3, "clarification": "I can help you view medicines, appointments, documents, or chat with me. What would you like?"}
+- "blah blah blah" → {"understood": false, "intent": "unknown", "action": "", "confidence": 0.1, "clarification": "I didn't understand that. Could you ask me about medicines, appointments, or documents?"}
+""";
+
+    try {
+      final response = await _callAI(prompt);
+
+      // Try to parse as JSON - handle various edge cases
+      String jsonStr = response.trim();
+
+      // Remove markdown code blocks if present
+      if (jsonStr.startsWith('```')) {
+        jsonStr =
+            jsonStr.replaceAll('```json', '').replaceAll('```', '').trim();
+      }
+
+      final data = jsonDecode(jsonStr) as Map<String, dynamic>;
+      return {
+        'understood': data['understood'] ?? false,
+        'intent': data['intent'] ?? 'unknown',
+        'action': data['action'] ?? '',
+        'confidence': (data['confidence'] ?? 0.0).toDouble(),
+        'clarification': data['clarification'] ??
+            'I didn\'t understand that. Could you try again?',
+      };
+    } catch (e) {
+      debugPrint('Voice intent parsing error: $e');
+      return {
+        'understood': false,
+        'intent': 'unknown',
+        'action': '',
+        'confidence': 0.0,
+        'clarification':
+            'Sorry, I had trouble understanding. Please try again.',
+      };
+    }
+  }
+
   static Future<String> _callAI(String prompt) async {
     _lastProvider = 'none';
     _lastRouteNote = 'Routing request...';
@@ -102,7 +168,8 @@ End with: "${AppConstants.chatDisclaimer}"
         _lastRouteNote = 'Connected to local AI tunnel';
         return text;
       } on SocketException {
-        _lastRouteNote = 'Tunnel unavailable due to network error. Trying cloud fallback.';
+        _lastRouteNote =
+            'Tunnel unavailable due to network error. Trying cloud fallback.';
       } on TimeoutException {
         _lastRouteNote = 'Tunnel timed out. Trying cloud fallback.';
       } catch (e) {
@@ -168,7 +235,8 @@ End with: "${AppConstants.chatDisclaimer}"
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Tunnel API error ${response.statusCode}: ${_safeBody(response.body)}');
+      throw Exception(
+          'Tunnel API error ${response.statusCode}: ${_safeBody(response.body)}');
     }
 
     final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -183,47 +251,68 @@ End with: "${AppConstants.chatDisclaimer}"
     required String apiKey,
     required String prompt,
   }) async {
+    // Use Google Gemini 2.0 Flash API (latest, faster model)
     final response = await http.post(
-      Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+      Uri.parse(
+          'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey'),
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer $apiKey',
-        'HTTP-Referer': 'https://healthvault.app',
-        'X-Title': 'HealthVault',
       },
       body: jsonEncode({
-        'model': 'google/gemma-3-4b-it:free',
-        'messages': [
-          {'role': 'user', 'content': prompt}
+        'contents': [
+          {
+            'parts': [
+              {'text': prompt}
+            ]
+          }
         ],
-        'max_tokens': 500,
+        'generationConfig': {
+          'maxOutputTokens': 500,
+          'temperature': 0.7,
+        }
       }),
     );
 
     if (response.statusCode == 200) {
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      final text = _extractResponseText(data);
-      if (text.isNotEmpty) {
-        return text;
+      try {
+        final candidates = data['candidates'] as List?;
+        if (candidates != null && candidates.isNotEmpty) {
+          final content = candidates[0]['content'];
+          final parts = content['parts'] as List?;
+          if (parts != null && parts.isNotEmpty) {
+            final text = parts[0]['text'] as String? ?? '';
+            if (text.isNotEmpty) return text;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error parsing Gemini response: $e');
       }
-      throw Exception('Cloud response was empty.');
+      throw Exception('Gemini response was empty or malformed.');
     }
 
-    if (response.statusCode == 401) {
-      throw Exception('Invalid API key. Please check your OpenRouter key.');
+    if (response.statusCode == 400) {
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final error = data['error']?['message'] ?? 'Bad request';
+      throw Exception('API error: $error');
+    }
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      throw Exception(
+          'Invalid API key. Please check your Gemini API key in settings.');
     }
     if (response.statusCode == 429) {
       throw Exception('Too many requests. Please wait and try again.');
     }
 
-    throw Exception('API error ${response.statusCode}: ${_safeBody(response.body)}');
+    throw Exception(
+        'API error ${response.statusCode}: ${_safeBody(response.body)}');
   }
 
   static String _extractResponseText(Map<String, dynamic> data) {
-    final fromChoices = data['choices'] is List &&
-            (data['choices'] as List).isNotEmpty
-        ? (data['choices'] as List).first
-        : null;
+    final fromChoices =
+        data['choices'] is List && (data['choices'] as List).isNotEmpty
+            ? (data['choices'] as List).first
+            : null;
 
     if (fromChoices is Map<String, dynamic>) {
       final message = fromChoices['message'];

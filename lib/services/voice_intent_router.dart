@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import '../models/models.dart';
 import 'app_state.dart';
 import 'audit_service.dart';
+import 'ai_service.dart';
 
 /// Voice Intent Router - Maps voice commands to app actions
 /// Handles intent recognition, parameter extraction, and action execution
@@ -24,18 +25,43 @@ class VoiceIntentRouter {
     required double confidence,
   }) async {
     try {
-      // Step 1: Recognize intent and extract parameters
-      final (intent, params) = _parseIntent(transcript, language);
+      // Step 1: Use AI to understand the voice command
+      final aiUnderstanding = await AIService.understandVoiceCommand(
+        transcript: transcript,
+        language: language,
+      );
 
-      if (intent == VoiceIntentType.unknown) {
+      // Step 2: Map AI understanding to our intent types
+      final intent = _mapAIIntentToVoiceIntent(aiUnderstanding['intent']);
+      final understood = aiUnderstanding['understood'] as bool;
+      final aiConfidence = aiUnderstanding['confidence'] as double;
+      final clarification = aiUnderstanding['clarification'] as String;
+
+      if (!understood || intent == VoiceIntentType.unknown) {
+        // AI couldn't understand - try keyword fallback
+        final (fallbackIntent, fallbackParams) =
+            _parseIntent(transcript, language);
+
+        if (fallbackIntent != VoiceIntentType.unknown) {
+          // Keyword matching worked
+          return await _executeIntent(fallbackIntent, fallbackParams);
+        }
+
+        // Neither AI nor keywords understood
         return VoiceIntentResult(
-          intent: intent,
+          intent: VoiceIntentType.unknown,
           recognized: false,
-          reason: 'Command not recognized. Please try again.',
+          reason: clarification.isNotEmpty
+              ? clarification
+              : 'I didn\'t understand that. Could you try again with: medicines, appointments, documents, or chat?',
         );
       }
 
-      // Step 2: Check if high-risk action
+      // Extract action from AI response
+      final action = aiUnderstanding['action'] as String? ?? '';
+      final params = _extractParams(intent, action);
+
+      // Check if high-risk action
       if (highRiskActions.contains(intent)) {
         return VoiceIntentResult(
           intent: intent,
@@ -46,15 +72,61 @@ class VoiceIntentRouter {
         );
       }
 
-      // Step 3: Execute action
+      // Execute action
       return await _executeIntent(intent, params);
     } catch (e) {
       debugPrint('Error processing voice command: $e');
       return VoiceIntentResult(
         intent: VoiceIntentType.unknown,
         recognized: false,
-        reason: 'Failed to process command: $e',
+        reason: 'I had trouble processing that. Please try again.',
       );
+    }
+  }
+
+  /// Map AI intent strings to our VoiceIntentType enum
+  VoiceIntentType _mapAIIntentToVoiceIntent(String aiIntent) {
+    switch (aiIntent.toLowerCase()) {
+      case 'navigate':
+        return VoiceIntentType.navigate;
+      case 'medicine':
+        return VoiceIntentType.medicine;
+      case 'appointment':
+        return VoiceIntentType.appointment;
+      case 'document':
+        return VoiceIntentType.document;
+      case 'emergency':
+        return VoiceIntentType.emergency;
+      case 'chat':
+        return VoiceIntentType.navigate; // Chat is handled as navigate target
+      case 'profile':
+        return VoiceIntentType.profile;
+      case 'guardian':
+        return VoiceIntentType.guardian;
+      default:
+        return VoiceIntentType.unknown;
+    }
+  }
+
+  /// Extract params from AI action string
+  Map<String, dynamic> _extractParams(VoiceIntentType intent, String action) {
+    switch (intent) {
+      case VoiceIntentType.navigate:
+        return {'target': action == 'chat' ? 'ai_chat' : action};
+      case VoiceIntentType.medicine:
+        return {'action': action.isEmpty ? 'list' : action};
+      case VoiceIntentType.appointment:
+        return {'action': action.isEmpty ? 'list' : action};
+      case VoiceIntentType.document:
+        return {'action': action.isEmpty ? 'list' : action};
+      case VoiceIntentType.emergency:
+        return {'action': 'trigger'};
+      case VoiceIntentType.profile:
+        return {'action': 'view'};
+      case VoiceIntentType.guardian:
+        return {'action': 'status'};
+      default:
+        return {};
     }
   }
 

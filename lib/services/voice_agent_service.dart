@@ -86,14 +86,16 @@ class VoiceAgentService extends ChangeNotifier {
   }
 
   void _initializeTTS() {
+    // Natural speech for elderly users - slower pace, clear articulation
     _textToSpeech.setVolume(1.0);
-    _textToSpeech.setSpeechRate(0.7); // Slower, more natural pace for elderly
-    _textToSpeech.setPitch(1.0);
-
-    // Set language-specific voice settings
+    _textToSpeech.setSpeechRate(0.75); // Natural pace (0.5-1.0, lower = slower)
+    _textToSpeech.setPitch(0.95); // Slightly lower pitch for warmth
+    
+    // Set language-specific voice settings for natural speech
     if (defaultTargetPlatform == TargetPlatform.android) {
+      // Use best available voice for language
       _textToSpeech.setLanguage(_currentLanguage == 'hi' ? 'hi-IN' : 'en-US');
-    } else if (defaultTargetPlatform == TargetPlatform.iOS) {
+      _textToSpeech.speak(''); // Prime TTS engine
       _textToSpeech.setLanguage(_currentLanguage == 'hi' ? 'hi-IN' : 'en-US');
     }
   }
