@@ -11,6 +11,7 @@ import '../models/models.dart';
 import 'audit_service.dart';
 import 'firebase_service.dart';
 import 'notification_service.dart';
+import 'localization_service.dart';
 
 class AppState extends ChangeNotifier {
   static const String _currentUidKey = 'current_uid';
@@ -708,11 +709,11 @@ class AppState extends ChangeNotifier {
 
   void setLanguage(String language) {
     _selectedLanguage = language;
-    
+
     // Update localization service
     final localizationCode = language == 'Hindi' ? 'hi' : 'en';
     localization.setLanguage(localizationCode);
-    
+
     if (_currentUser != null) {
       final user = _currentUser!;
       _currentUser = AppUser(
